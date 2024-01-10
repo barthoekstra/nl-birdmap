@@ -3,21 +3,35 @@ library(bioRad)
 library(imager)
 library(stars)
 library(pracma)
-# library(ncdf4)
 library(pbmcapply)
 library(sf)
 library(raster)
-# library(rdrop2)
+library(patchwork)
 
-visual_filter <- function(pvolfile, vp) {
-  rl <- 160000  # Was 160000
+visual_filter <- function(pvolfile, overwrite = FALSE) {
+  rl <- 160000
+
+  rbc_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), ".RDS")
+  rbc_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), ".png")
+  if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
+    cat("RBC already exists, skipping...\n")
+    return("exists")
+  }
+
   # 0. Load pvol
-  print("Loading pvol")
-  pvol <- read_pvolfile(pvolfile, param = c("DBZH", "DBZV", "RHOHV"))
+  cat(paste0("Loading pvol: ", pvolfile, "\n"))
+  pvol <- read_pvolfile(pvolfile, param = c("DBZH", "DBZV", "RHOHV", "VRADH"))
+
+  if (!"RHOHV" %in% names(pvol$scans[[1]]$params)) {
+    cat("No dual-pol products found, moving on\n")
+    return("no dual-pol")
+  }
+  # 0.5 Store PPI from raw scan
+  ppi <- project_as_ppi(pvol$scans[[1]], grid_size = 500, range_max = 160000)
 
   # 1. Deal with EM interference
   ## Identify
-  print("Identify and interpolate EM interference")
+  cat("Identify and interpolate EM interference\n")
   eminterference <- identify_em_interference(pvol)
 
   ## Interpolate beams where it was found
@@ -30,16 +44,20 @@ visual_filter <- function(pvolfile, vp) {
   }, pvol$scans, eminterference, SIMPLIFY = FALSE)
 
   # 2. Remove dual-prf 0.3 degree scan
-  print("Remove dual-prf 0.3 degree scan")
+  cat("Remove dual-prf 0.3 degree scan\n")
   lowest_dualprf_scan <- which(sapply(pvol$scans, function(x) {
     x$attributes$how$highprf != 0 & x$attributes$how$lowprf != 0 & round(x$geo$elangle, 1) == 0.3
   }))
 
   pvol$scans[[lowest_dualprf_scan]] <- NULL
 
-  # 3. Classify rain
+  # 3. Remove azimuth-effect
+  cat("Removing azimuth-effect\n")
+  pvol <- remove_azimuth_effect(pvol)
+
+  # 4. Classify rain
   ## Calculate DPR
-  print("Calculating DPR")
+  cat("Calculating DPR\n")
   pvol <- suppressWarnings(
     calculate_param(pvol,
                     ZDRL = 10 ** ((DBZH - DBZV) /10),
@@ -53,26 +71,12 @@ visual_filter <- function(pvolfile, vp) {
   })
 
   ## Create rainmasks
-  print("Creating rainmasks")
-
-  # vp <- calculate_vp(pvolfile)
-  lon <- vp$attributes$where$lon
-  lat <- vp$attributes$where$lat
-  # e <- ((s <- st_point(c(lon, lat)) %>% st_sfc() %>% st_set_crs(4326) %>% st_transform(3857) %>% as_Spatial()) %>% extent()) + 160000 * 2
-  # ras <- raster::raster(e, resolution = 500, crs = CRS(proj4string(s)))
-  # proj4 <- CRS(paste("+proj=aeqd +lat_0=", lat, " +lon_0=", lon, " +units=m", sep = ""))
-  # e_rain <- projectExtent(ras, proj4)
-  # ras_rain <- raster::raster(e_rain)
-  # proj4 <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-  # newext <- extent(projectExtent(ras,"+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
-  # ras_rain <- raster::raster(newext, resolution = 500, crs = CRS(proj4))
+  cat("Creating rainmasks\n")
 
   masks <- lapply(pvol$scans, function(x) {
     if (x$geo$elangle < 90) {
       ppi <- project_as_ppi(get_param(x, "DPR"), grid_size = 500, range_max = rl)
-      # ppi <- project_as_ppi(get_param(x, "DPR"), grid_size = (rl*2) / 640, range_max = rl)
-      # ppi <- project_as_ppi(get_param(x, "DPR"), grid_size = ras)
-      # ppi <- project_as_ppi(get_param(x, "DPR"), grid_size = 500, range_max = round(mean(abs(as.matrix(ras_rain@extent))), -3))
+
       dpr <- as.cimg(as.matrix(ppi$data))
       (dpr <= -12 & !is.na(dpr)) %>%
         clean(4) %>%  # Remove speckles by shrinking then growing using a 4px radius
@@ -115,59 +119,35 @@ visual_filter <- function(pvolfile, vp) {
     }
   })
   rain_elevations <- simplify2array(lapply(masks, function(x) x[[1]]))
-  # rain_elevations_low <- rain_elevations
   rain_elevations <- apply(rain_elevations, c(1, 2), sum, na.rm = TRUE)
-  # low_elevations <- get_elevation_angles(pvol) < 5
-  # rain_elevations_low <- apply(rain_elevations_low[, , low_elevations], c(1, 2), sum, na.rm = TRUE)
-  # rain_elevations[rain_elevations <= 1] <- NA
 
-  # 4. Apply RBC
-  print("Apply RBC")
+  # 5. Apply RBC
+  cat("Apply RBC\n")
 
+  vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
+  if (!file.exists(vp_filename)) {
+    cat("Calculating vp\n")
+    vp <- calculate_vp(pvolfile, vpfile = vp_filename)
+  } else {
+    cat("Loading vp\n")
+    vp <- read_vpfiles(vp_filename)
+  }
   bioRad::sd_vvp_threshold(vp) <- 2
-  # rbc <- integrate_to_ppi(pvol, vp, xlim = c(-160000, 160000), ylim = c(-160000, 160000), res = 500, param = "DBZH")
-  # rbc <- integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH")
-  # rbc <- integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = (rl*2) / 640, param = "DBZH")
-  rbc <- integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH")
-  # pvol_low <- pvol
-  # pvol_low$scans <- pvol_low$scans[low_elevations]
-  # rbc_low <- integrate_to_ppi(pvol_low, vp, raster = ras, param = "DBZH")
+
+  rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
 
   ## Add rain mask to RBC
   rbc$data$rain <- as.vector(rain_elevations)
-  # rbc$data$rain_low <- as.vector(rain_elevations_low)
-  # rbc$data$VIR_low <- as.vector(rbc_low$data$VIR)
 
-  # 5. Save RBC
-  print("Save RBC")
-  # saveRDS(rbc, paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), ".png"))
-  rbc
-  # t <- do.call("c", lapply(pvol$scans, function(x) {
-  #   s <- strptime(paste(x$attributes$what[c("startdate", "starttime")], collapse = " "), "%Y%m%d %H%M%S", tz = "UTC")
-  #   e <- strptime(paste(x$attributes$what[c("enddate", "endtime")], collapse = " "), "%Y%m%d %H%M%S", tz = "UTC")
-  #   return(s + (e - s) / 2)
-  # }))
-  #
-  # rbc_dset <- stars::st_as_stars(rbc$data)
-  # attr(rbc_dset, "bbox") <- rbc$geo$bbox
-  # attr(rbc_dset, "radar_lat") <- pvol$geo$lat
-  # attr(rbc_dset, "radar_lon") <- pvol$geo$lon
-  # attr(rbc_dset, "radar") <- pvol$radar
-  # attr(rbc_dset, "time") <- pvol$datetime
-  #
-  # saveRDS(rbc, file = paste0("data/RBC/RDS/", str_replace(rbc_file_name(rbc_dset), ".nc", ".RDS")))
-  # save_rbc_nc(rbc_dset)
-  #
-  # if (pvol$radar == "NL52") {
-  #   drop_upload(paste0("data/RBC/", rbc_file_name(rbc_dset)),
-  #               path = "UvA/ClearSkies/NLHRW20181019/", mode = "add", verbose = FALSE, dtoken = token)
-  #   print(paste0("Uploaded NLHRW data to Dropbox: ", rbc_file_name(rbc_dset)))
-  # }
-  # if (pvol$radar == "NL51") {
-  #   drop_upload(paste0("data/RBC/", rbc_file_name(rbc_dset)),
-  #               path = "UvA/ClearSkies/NLDHL20181019/", mode = "add", verbose = FALSE, dtoken = token)
-  #   print(paste0("Uploaded NLDHL data to Dropbox: ", rbc_file_name(rbc_dset)))
-  # }
+  # 6. Save RBC
+  cat("Save RBC\n")
+  saveRDS(rbc, file = rbc_filename)
+
+  # 7. Save Plot
+  cat("Save plot\n")
+  (plot(ppi, param = "DBZH") + plot(ppi, param = "VRADH")) / (plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
+    plot_annotation(title = paste0(toupper(pvol$radar), " ", pvol$datetime)) -> rbc_plot
+  ggsave(rbc_plot_filename, plot = rbc_plot, width = 10, height = 10)
 }
 
 range_coverage <- function(scan) {
@@ -235,7 +215,6 @@ interpolate_em <- function(scan, beams) {
   }
 
   scan$params$DBZH <- s
-  attr(scan$params$DBZH, "class") <- c("param", "matrix", "array")
   return(scan)
 }
 
@@ -259,134 +238,86 @@ identify_em_interference <- function(pvol) {
   beams
 }
 
-# save_rbc_nc <- function(rbc_dset) {
-#   time_stamp_raw <- attr(rbc_dset, "time")
-#   tz_str <- attributes(time_stamp_raw)$tz
-#   time_str <- paste(as.character(time_stamp_raw),tz_str,sep=' ')
-#
-#   fpath_vir <- paste0("data/RBC/", tools::file_path_sans_ext(rbc_file_name(rbc_dset)), ".nc")
-#   # fpath_vir_low <- paste0("data/RBC/", tools::file_path_sans_ext(rbc_file_name(rbc_dset)), "_low.nc")
-#   fpath_rain <- paste0("data/RBC/", tools::file_path_sans_ext(rbc_file_name(rbc_dset)), "_rain.nc")
-#   # fpath_rain_low <- paste0("data/RBC/", tools::file_path_sans_ext(rbc_file_name(rbc_dset)), "_rain_low.nc")
-#
-#   write_stars(rbc_dset, dsn = fpath_vir, layer = "VIR")
-#   # write_stars(rbc_dset, dsn = fpath_vir_low, layer = "VIR_low")
-#   write_stars(rbc_dset, dsn = fpath_rain, layer = "rain")
-#   # write_stars(rbc_dset, dsn = fpath_rain_low, layer = "rain_low")
-#
-#   nv_vir <- ncdf4::nc_open(filename = fpath_vir, write = TRUE)
-#   # nv_vir_low <- ncdf4::nc_open(filename = fpath_vir_low, write = TRUE)
-#   nv_rain <- ncdf4::nc_open(filename = fpath_rain, write = TRUE)
-#   # nv_rain_low <- ncdf4::nc_open(filename = fpath_rain_low, write = TRUE)
-#   nv_vir <- ncvar_rename(nv_vir, "Band1", "VIR")
-#   # nv_vir_low <- ncvar_rename(nv_vir_low, "Band1", "VIR_low")
-#   nv_rain <- ncvar_rename(nv_rain, "Band1", "rain")
-#   # nv_rain_low <- ncvar_rename(nv_rain_low, "Band1", "rain_low")
-#
-#   # Write VIR_low to nv_vir
-#   # xdim <- nv_vir_low$dim[["x"]]
-#   # ydim <- nv_vir_low$dim[["y"]]
-#   # mv <- NA
-#   # VIR_low <- ncvar_def("VIR_low", "VIR", list(xdim, ydim), mv)
-#   # nv_vir <- ncvar_add(nv_vir, VIR_low)
-#   # ncvar_put(nv_vir, "VIR_low", ncvar_get(nv_vir_low, "VIR_low"))
-#
-#   # Write rain to nv_vir
-#   xdim <- nv_rain$dim[["x"]]
-#   ydim <- nv_rain$dim[["y"]]
-#   mv <- NA
-#   rain <- ncvar_def("rain", "nr", list(xdim, ydim), mv)
-#   nv_vir <- ncvar_add(nv_vir, rain)
-#   ncvar_put(nv_vir, "rain", ncvar_get(nv_rain, "rain"))
-#
-#   # Write rain low to nv_vir
-#   # xdim <- nv_rain_low$dim[["x"]]
-#   # ydim <- nv_rain$dim[["y"]]
-#   # mv <- NA
-#   # rain_low <- ncvar_def("rain_low", "nr", list(xdim, ydim), mv)
-#   # nv_vir <- ncvar_add(nv_vir, rain_low)
-#   # ncvar_put(nv_vir, "rain_low", ncvar_get(nv_rain_low, "rain_low"))
-#
-#   # Time
-#   ncatt_put(nc = nv_vir, varid = 0, attname = "time", attval = time_str,
-#             prec = typeof(time_str), definemode = FALSE)
-#   # Radar Lat
-#   ncatt_put(nc = nv_vir, varid =  0, attname = 'radar_lat',
-#             attval = attributes(rbc_dset)$radar_lat,
-#             prec = typeof(attributes(rbc_dset)$radar_lat), definemode = FALSE)
-#   # Radar Lon
-#   ncatt_put(nc = nv_vir, varid =  0, attname = 'radar_lon',
-#             attval = attributes(rbc_dset)$radar_lon,
-#             prec = typeof(attributes(rbc_dset)$radar_lon), definemode = FALSE)
-#   # BioRad version
-#   ncatt_put(nc = nv_vir, varid =  0, attname = 'BioRadVersion',
-#             attval = getNamespaceVersion('bioRad')[[1]],
-#             prec = typeof(getNamespaceVersion('bioRad')[[1]]),
-#             definemode = FALSE)
-#   # Bounding box
-#   ncatt_put(nc = nv_vir, varid = 0, attname = 'bbox',
-#             attval = attributes(rbc_dset)$bbox,
-#             prec = typeof(attributes(rbc_dset)$bbox), definemode = FALSE)
-#
-#   nc_close(nc = nv_vir)
-#   # nc_close(nc = nv_vir_low)
-#   nc_close(nc = nv_rain)
-#   # nc_close(nc = nv_rain_low)
-#   file.remove(fpath_rain)
-#   # file.remove(fpath_rain_low)
-#   # file.remove(fpath_vir_low)
-#   message("RBC succesfully saved to disk")
-# }
-#
-# rbc_file_name <- function(rbc_dset){
-#   # Function Naming convention
-#   # In RBC DSET
-#   # OUT fname
-#
-#   time_raw <- attr(rbc_dset, "time")
-#   time_str <- format(x = time_raw,format = '%Y%m%dT%H%M' ,tz = 'UTC') # YYYmmddTHHMM
-#   radar <- attr(rbc_dset, "radar")
-#   if (radar == "NL52") {
-#     radar_str <- "NLHRW"
-#   } else if (radar == "NL51") {
-#     radar_str <- "NLDHL"
-#   } else {
-#     radar_str <- "NULL"
-#   }
-#   dtype = 'RBC' # Is not known from the format, adding it explicitly now.
-#   fname = paste0(paste(radar_str,dtype,time_str, sep = '_'),".nc")
-#   return(fname)
-# }
+remove_azimuth_effect <- function(pvol) {
+  #@TODO: Consider storing summaries of the effects somewhere
 
-# vp_file_name <- function(pvolfile) {
-#   filename <- strsplit(tools::file_path_sans_ext(basename(pvolfile)), "_")[[1]]
-#   fname <- paste0(dirname(pvolfile), "/vp/", paste(filename[1], "vp", filename[3], filename[4], "v0-3-20.h5", sep = "_"))
-#   return(fname)
-# }
+  avg_range <- c(5000, 35000) # min-max meters
+  avg_altitude <- c(200, 5000) # min-max meters
 
-# token <- readRDS("token.RDS")
+  for (i in seq_along(pvol$scans)) {
+    if (pvol$scans[[i]]$attributes$where$elangle == 90) next
+    avg_start_rangegate_range <- round((avg_range[1] / pvol$scans[[i]]$geo$rscale) + pvol$scans[[i]]$geo$rstart)
+    avg_end_rangegate_range <- round((avg_range[2] / pvol$scans[[i]]$geo$rscale) + pvol$scans[[i]]$geo$rstart)
 
-# cores <- 7
-# # files <- list.files(path = "data/20201001", full.names = TRUE)
-# # processing1 <- pbmclapply(files, visual_filter, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-# # saveRDS(processing1, file = paste0("data/20201001_processing_3.RDS"))
-#
-# # files2 <- list.files(path = "data/20201002", full.names = TRUE)
-# files <- list.files(path = "data/20181019/", full.names = TRUE)
-# processing2 <- pbmclapply(files, visual_filter, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-# saveRDS(processing2, file = paste0("data/20201002_processing_5.RDS"))
+    rangegate_altitudes <- suppressWarnings(
+      pvol$geo$height + beam_height(range = seq(from = avg_range[1], to = avg_range[2], by = pvol$scans[[i]]$geo$rscale),
+                                    pvol$scans[[i]]$attributes$where$elangle)
+    )
+    avg_start_rangegate_altitude <- which(rangegate_altitudes > avg_altitude[1])
+    if (length(avg_start_rangegate_altitude) > 0) {
+      avg_start_rangegate_altitude <- avg_start_rangegate_altitude[[1]]
+    } else {
+      # Apparently all rangegates within the range are are below the minimum altitude, so skip scan
+      next
+    }
+    avg_end_rangegate_altitude <- which(rangegate_altitudes > avg_altitude[2])
+    if (length(avg_end_rangegate_altitude) > 0) {
+      avg_end_rangegate_altitude <- avg_end_rangegate_altitude[[1]] - 1
+    } else {
+      # Apparently all rangegates within the range are below the maximum altitude, so the final rangegate we select is the
+      # final rangegate within the range
+      avg_end_rangegate_altitude <- length(rangegate_altitudes)
+    }
 
-# reprocess <- sapply(processing1, function(x) !is.null(x))
+    avg_start_rangegate <- max(avg_start_rangegate_range, avg_start_rangegate_altitude)
+    avg_end_rangegate <- min(avg_end_rangegate_range, avg_end_rangegate_altitude)
 
-# visual_filter(files[1])
-# visual_filter(files[410])
-# visual_filter("data/20201001/NLHRW_pvol_20201001T1740_6356.h5")
+    DBZH_orig <- pvol$scans[[i]]$params$DBZH
 
-# visual_filter("data/20201002/NLHRW_pvol_20201002T1205_6356.h5")
+    DBZH <- pvol$scans[[i]]$params$DBZH[avg_start_rangegate:avg_end_rangegate,]
+    DBZH[DBZH > 20] <- NA
 
-# files_rbc <- list.files(path = "data/RBC", full.names = TRUE)
-# files_dropbox <- paste0("UvA/ClearSkies/Data/", basename(files_rbc))
+    # Remove rain
+    RHOHV <- pvol$scans[[i]]$params$RHOHV[avg_start_rangegate:avg_end_rangegate,]
+    DBZH[RHOHV > 0.90] <- NA
 
+    DBZH_avg <- apply(DBZH, MARGIN = 2, FUN = mean, na.rm = TRUE)
 
-# mapply(function(x, y) drop_upload(x, path = "UvA/ClearSkies/Data_bioRad_Defaults/", mode = "add", verbose = FALSE, dtoken = token), files_rbc, files_dropbox)
-# lapply(files_rbc, function(x) drop_upload(x, path = "UvA/ClearSkies/Data_bioRad_Defaults", mode = "add", verbose = FALSE, dtoken = token))
+    df <- data.frame("elangle" = rep(pvol$scans[[i]]$attributes$where$elangle, 360),
+                     "azimuth" = 1:360,
+                     "DBZH_avg" = DBZH_avg,
+                     "DBZH_avg_corrected" = NA,
+                     "datetime" = rep(pvol$datetime, 360))
+
+    # Sine-fitting
+    # Following https://stats.stackexchange.com/a/77865
+    fit.lm <- lm(DBZH_avg ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+    b0 <- coef(fit.lm)[1]
+    alpha <- coef(fit.lm)[2]
+    beta <- coef(fit.lm)[3]
+
+    amplitude <- sqrt(alpha^2 + beta^2)
+    phase <- atan2(beta, alpha)
+
+    # Correct DBZH
+    azimuths <- 1:360
+    azimuths_rad <- (2 * pi * azimuths)/180
+    sine <- amplitude * sin(azimuths_rad + phase)
+    df$sine <- sine
+
+    DBZH_corrected <- sweep(pvol$scans[[i]]$params$DBZH, 2, sine, "-")
+
+    pvol$scans[[i]]$params$DBZH <- DBZH_corrected
+    class(pvol$scans[[i]]$params$DBZH) <- c("param", "matrix", "array")
+  }
+  return(pvol)
+}
+
+cores <- 12
+files <- list.files(path = "data/pvol", full.names = TRUE)
+files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
+remaining_files <- str_replace(files, ".h5", ".RDS")
+remaining_files <- str_replace(remaining_files, "/pvol/", "/rbc/")
+remaining_files <- files[!file.exists(remaining_files)]
+processing <- pbmclapply(remaining_files, visual_filter, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
