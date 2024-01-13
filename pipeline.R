@@ -211,6 +211,7 @@ interpolate_em <- function(scan, beams) {
     ip2 <- which(!is.na(mi), arr.ind = TRUE)
     mp <- interp2(x, y, z, ip2[, 1], ip2[, 2], method = "linear")
     mi[cbind(ip2[, 1], ip2[, 2])] <- mp
+    mi[mi < -31.42826] <- -31.42826
     s[, cb] <- mi
   }
 
