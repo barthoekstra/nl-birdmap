@@ -8,11 +8,11 @@ library(sf)
 library(raster)
 library(patchwork)
 
-visual_filter <- function(pvolfile, overwrite = FALSE) {
+visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged") {
   rl <- 160000
 
-  rbc_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), ".RDS")
-  rbc_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), ".png")
+  rbc_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
+  rbc_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
   if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
     return("exists")
@@ -27,7 +27,8 @@ visual_filter <- function(pvolfile, overwrite = FALSE) {
     return("no dual-pol")
   }
   # 0.5 Store PPI from raw scan
-  ppi <- project_as_ppi(pvol$scans[[1]], grid_size = 500, range_max = 160000)
+  ppi_dbzh <- project_as_ppi(pvol$scans[[1]], grid_size = 500, range_max = 160000)
+  ppi_vradh <- project_as_ppi(pvol$scans[[3]], grid_size = 500, range_max = 160000) # Use dual-PRF scan
 
   # 1. Deal with EM interference
   ## Identify
@@ -53,7 +54,12 @@ visual_filter <- function(pvolfile, overwrite = FALSE) {
 
   # 3. Remove azimuth-effect
   cat("Removing azimuth-effect\n")
-  pvol <- remove_azimuth_effect(pvol)
+  pvol <- remove_azimuth_effect(pvol, method = azim_method)
+  azim_plot <- plot_azimuth_effect(pvol)
+
+  azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
+  ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
+
 
   # 4. Classify rain
   ## Calculate DPR
@@ -139,14 +145,17 @@ visual_filter <- function(pvolfile, overwrite = FALSE) {
   ## Add rain mask to RBC
   rbc$data$rain <- as.vector(rain_elevations)
 
+  ## Add reflectivity correction to RBC
+  rbc$reflectivity <- pvol$reflectivity
+
   # 6. Save RBC
   cat("Save RBC\n")
   saveRDS(rbc, file = rbc_filename)
 
   # 7. Save Plot
   cat("Save plot\n")
-  (plot(ppi, param = "DBZH") + plot(ppi, param = "VRADH")) / (plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
-    plot_annotation(title = paste0(toupper(pvol$radar), " ", pvol$datetime)) -> rbc_plot
+  (plot(ppi_dbzh, param = "DBZH") + plot(ppi_vradh, param = "VRADH")) / (plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
+    plot_annotation(title = paste0(toupper(pvol$radar), " ", pvol$datetime, " / Azim method: ", azim_method)) -> rbc_plot
   ggsave(rbc_plot_filename, plot = rbc_plot, width = 10, height = 10)
 }
 
@@ -239,11 +248,13 @@ identify_em_interference <- function(pvol) {
   beams
 }
 
-remove_azimuth_effect <- function(pvol) {
+remove_azimuth_effect <- function(pvol, method = "averaged") {
   #@TODO: Consider storing summaries of the effects somewhere
 
   avg_range <- c(5000, 35000) # min-max meters
   avg_altitude <- c(200, 5000) # min-max meters
+
+  reflectivity <- data.frame()
 
   for (i in seq_along(pvol$scans)) {
     if (pvol$scans[[i]]$attributes$where$elangle == 90) next
@@ -282,17 +293,36 @@ remove_azimuth_effect <- function(pvol) {
     RHOHV <- pvol$scans[[i]]$params$RHOHV[avg_start_rangegate:avg_end_rangegate,]
     DBZH[RHOHV > 0.90] <- NA
 
-    DBZH_avg <- apply(DBZH, MARGIN = 2, FUN = mean, na.rm = TRUE)
+    if (method == "averaged") {
+      DBZH_avg <- apply(DBZH, MARGIN = 2, FUN = mean, na.rm = TRUE)
 
-    df <- data.frame("elangle" = rep(pvol$scans[[i]]$attributes$where$elangle, 360),
-                     "azimuth" = 1:360,
-                     "DBZH_avg" = DBZH_avg,
-                     "DBZH_avg_corrected" = NA,
-                     "datetime" = rep(pvol$datetime, 360))
+      df <- data.frame("elangle" = rep(pvol$scans[[i]]$attributes$where$elangle, 360),
+                       "azimuth" = 1:360,
+                       "DBZH" = DBZH_avg,
+                       "datetime" = rep(pvol$datetime, 360)) %>%
+         mutate(azimuth_rad = (2 * pi * azimuth) / 180)
 
-    # Sine-fitting
-    # Following https://stats.stackexchange.com/a/77865
-    fit.lm <- lm(DBZH_avg ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+      # Sine-fitting
+      # Following https://stats.stackexchange.com/a/77865
+      fit.lm <- lm(DBZH ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+    }
+
+    if (method == "full") {
+      DBZH %>%
+        data.frame() %>%
+        mutate(range = row_number()) %>%
+        pivot_longer(!range, names_to = "azimuth", values_to = "DBZH") %>%
+        mutate(azimuth = as.integer(str_replace(azimuth, "X", "")),
+               azimuth_rad = (2 * pi * azimuth) / 180,
+               elangle = pvol$scans[[i]]$attributes$where$elangle,
+               datetime = pvol$datetime) %>%
+        identity() -> df
+
+        # Sine-fitting
+        # Following https://stats.stackexchange.com/a/77865
+        fit.lm <- lm(DBZH ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+    }
+
     b0 <- coef(fit.lm)[1]
     alpha <- coef(fit.lm)[2]
     beta <- coef(fit.lm)[3]
@@ -300,18 +330,96 @@ remove_azimuth_effect <- function(pvol) {
     amplitude <- sqrt(alpha^2 + beta^2)
     phase <- atan2(beta, alpha)
 
+    # Store settings
+    df$b0 <- b0
+    df$alpha <- alpha
+    df$beta <- beta
+    df$amplitude <- amplitude
+    df$phase <- phase
+
     # Correct DBZH
     azimuths <- 1:360
     azimuths_rad <- (2 * pi * azimuths)/180
     sine <- amplitude * sin(azimuths_rad + phase)
-    df$sine <- sine
+    df %>%
+      mutate(sine = amplitude * sin(azimuth_rad + phase)) -> df
 
     DBZH_corrected <- sweep(pvol$scans[[i]]$params$DBZH, 2, sine, "-")
-
     pvol$scans[[i]]$params$DBZH <- DBZH_corrected
     class(pvol$scans[[i]]$params$DBZH) <- c("param", "matrix", "array")
+
+    # Recalculate after azimuthal correction
+    DBZH <- pvol$scans[[i]]$params$DBZH[avg_start_rangegate:avg_end_rangegate,]
+    DBZH[DBZH > 20] <- NA
+
+    # Remove rain
+    RHOHV <- pvol$scans[[i]]$params$RHOHV[avg_start_rangegate:avg_end_rangegate,]
+    DBZH[RHOHV > 0.90] <- NA
+
+    if (method == "averaged") {
+      DBZH_avg_corrected <- apply(DBZH, MARGIN = 2, FUN = mean, na.rm = TRUE)
+      df$DBZH_cor <- DBZH_avg_corrected
+
+      # Sine-fitting
+      # Following https://stats.stackexchange.com/a/77865
+      fit.lm <- lm(DBZH_cor ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+    }
+
+    if (method == "full") {
+      DBZH %>%
+        data.frame() %>%
+        mutate(range = row_number()) %>%
+        pivot_longer(!range, names_to = "azimuth", values_to = "DBZH") %>%
+        mutate(azimuth = as.integer(str_replace(azimuth, "X", "")),
+               azimuth_rad = (2 * pi * azimuth) / 180,
+               elangle = pvol$scans[[i]]$attributes$where$elangle,
+               datetime = pvol$datetime) %>%
+        rename(DBZH_cor = DBZH) %>%
+        identity() -> df_cor
+
+      df$DBZH_cor <- df_cor$DBZH_cor
+
+      # Sine-fitting
+      # Following https://stats.stackexchange.com/a/77865
+      fit.lm <- lm(DBZH_cor ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df_cor)
+    }
+    b0 <- coef(fit.lm)[1]
+    alpha <- coef(fit.lm)[2]
+    beta <- coef(fit.lm)[3]
+
+    amplitude <- sqrt(alpha^2 + beta^2)
+    phase <- atan2(beta, alpha)
+
+    # Store settings
+    df$b0_cor <- b0
+    df$alpha_cor <- alpha
+    df$beta_cor <- beta
+    df$amplitude_cor <- amplitude
+    df$phase_cor <- phase
+
+    reflectivity <- bind_rows(reflectivity, df)
   }
+  reflectivity$elangle_f <- as.factor(round(reflectivity$elangle, digits = 1))
+
+  pvol$reflectivity <- reflectivity
   return(pvol)
+}
+
+plot_azimuth_effect <- function(pvol) {
+  pvol$reflectivity %>%
+    drop_na() %>%
+    slice_sample(n = 10, by = c(elangle, azimuth)) %>%
+    mutate(azimuth_rad = (2 * pi * azimuth)/180,
+           sine_orig = b0 + amplitude * sin(azimuth_rad + phase),
+           sine_cor = b0_cor + amplitude_cor * sin(azimuth_rad + phase_cor)) %>%
+    distinct() %>%
+    ggplot() +
+    geom_point(aes(x = azimuth, y = DBZH), color = "red", size = 0.15) +
+    geom_point(aes(x = azimuth, y = sine_orig), color = "red", size = 0.15) +
+    geom_point(aes(x = azimuth, y = DBZH_cor), color = "blue", size = 0.15) +
+    geom_point(aes(x = azimuth, y = sine_cor), color = "blue", size = 0.15) +
+    facet_wrap(~elangle_f, scales = "free") +
+    labs(title = paste0(toupper(pvol$radar), " ", pvol$datetime))
 }
 
 cores <- 12
@@ -320,5 +428,8 @@ files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files <- str_replace(remaining_files, "/pvol/", "/rbc/")
 remaining_files <- files[!file.exists(remaining_files)]
-processing <- pbmclapply(remaining_files, visual_filter, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = TRUE,
+                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+
+
