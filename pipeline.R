@@ -26,11 +26,34 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
     cat("No dual-pol products found, moving on\n")
     return("no dual-pol")
   }
-  # 0.5 Store PPI from raw scan
+
+  # 1. Original RBC
+  cat("Calculate vertical profile RBC\n")
+  vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
+  if (!file.exists(vp_filename)) {
+    cat("Calculating vp\n")
+    vp <- calculate_vp(pvolfile, vpfile = vp_filename)
+  } else {
+    cat("Loading vp\n")
+    vp <- read_vpfiles(vp_filename)
+  }
+  bioRad::sd_vvp_threshold(vp) <- 2
+
+  rbc_orig_filename <- paste0("data/rbc_orig/", tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
+  if (!file.exists(rbc_orig_filename)) {
+    cat("Calculate original RBC\n")
+    rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+    saveRDS(rbc_orig, file = rbc_orig_filename)
+  } else {
+    cat("Loading original RBC\n")
+    rbc_orig <- readRDS(rbc_orig_filename)
+  }
+
+  # 2 Store PPI from raw scan
   ppi_dbzh <- project_as_ppi(pvol$scans[[1]], grid_size = 500, range_max = 160000)
   ppi_vradh <- project_as_ppi(pvol$scans[[3]], grid_size = 500, range_max = 160000) # Use dual-PRF scan
 
-  # 1. Deal with EM interference
+  # 3. Deal with EM interference
   ## Identify
   cat("Identify and interpolate EM interference\n")
   eminterference <- identify_em_interference(pvol)
@@ -44,7 +67,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
     }
   }, pvol$scans, eminterference, SIMPLIFY = FALSE)
 
-  # 2. Remove dual-prf 0.3 degree scan
+  # 4. Remove dual-prf 0.3 degree scan
   cat("Remove dual-prf 0.3 degree scan\n")
   lowest_dualprf_scan <- which(sapply(pvol$scans, function(x) {
     x$attributes$how$highprf != 0 & x$attributes$how$lowprf != 0 & round(x$geo$elangle, 1) == 0.3
@@ -52,7 +75,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
 
   pvol$scans[[lowest_dualprf_scan]] <- NULL
 
-  # 3. Remove azimuth-effect
+  # 5. Remove azimuth-effect
   cat("Removing azimuth-effect\n")
   pvol <- remove_azimuth_effect(pvol, method = azim_method)
   azim_plot <- plot_azimuth_effect(pvol)
@@ -60,8 +83,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
   ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
 
-
-  # 4. Classify rain
+  # 6. Classify rain
   ## Calculate DPR
   cat("Calculating DPR\n")
   pvol <- suppressWarnings(
@@ -127,19 +149,8 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   rain_elevations <- simplify2array(lapply(masks, function(x) x[[1]]))
   rain_elevations <- apply(rain_elevations, c(1, 2), sum, na.rm = TRUE)
 
-  # 5. Apply RBC
-  cat("Apply RBC\n")
-
-  vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
-  if (!file.exists(vp_filename)) {
-    cat("Calculating vp\n")
-    vp <- calculate_vp(pvolfile, vpfile = vp_filename)
-  } else {
-    cat("Loading vp\n")
-    vp <- read_vpfiles(vp_filename)
-  }
-  bioRad::sd_vvp_threshold(vp) <- 2
-
+  # 7. Calculate filtered RBC
+  cat("Calculate filtered RBC\n")
   rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
 
   ## Add rain mask to RBC
@@ -148,15 +159,16 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   ## Add reflectivity correction to RBC
   rbc$reflectivity <- pvol$reflectivity
 
-  # 6. Save RBC
+  # 8. Save RBC
   cat("Save RBC\n")
   saveRDS(rbc, file = rbc_filename)
 
-  # 7. Save Plot
+  # 9. Save Plot
   cat("Save plot\n")
-  (plot(ppi_dbzh, param = "DBZH") + plot(ppi_vradh, param = "VRADH")) / (plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
+  (plot(ppi_dbzh, param = "DBZH") + plot(ppi_vradh, param = "VRADH") + plot(ppi_dbzh, param = "RHOHV")) /
+    (plot(rbc_orig, param = "VID") + plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
     plot_annotation(title = paste0(toupper(pvol$radar), " ", pvol$datetime, " / Azim method: ", azim_method)) -> rbc_plot
-  ggsave(rbc_plot_filename, plot = rbc_plot, width = 10, height = 10)
+  ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 10)
 }
 
 range_coverage <- function(scan) {
@@ -249,8 +261,6 @@ identify_em_interference <- function(pvol) {
 }
 
 remove_azimuth_effect <- function(pvol, method = "averaged") {
-  #@TODO: Consider storing summaries of the effects somewhere
-
   avg_range <- c(5000, 35000) # min-max meters
   avg_altitude <- c(200, 5000) # min-max meters
 
@@ -302,6 +312,8 @@ remove_azimuth_effect <- function(pvol, method = "averaged") {
                        "datetime" = rep(pvol$datetime, 360)) %>%
          mutate(azimuth_rad = (2 * pi * azimuth) / 180)
 
+      df$scan_id <- i
+
       # Sine-fitting
       # Following https://stats.stackexchange.com/a/77865
       fit.lm <- lm(DBZH ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
@@ -318,9 +330,11 @@ remove_azimuth_effect <- function(pvol, method = "averaged") {
                datetime = pvol$datetime) %>%
         identity() -> df
 
-        # Sine-fitting
-        # Following https://stats.stackexchange.com/a/77865
-        fit.lm <- lm(DBZH ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
+      df$scan_id <- i
+
+      # Sine-fitting
+      # Following https://stats.stackexchange.com/a/77865
+      fit.lm <- lm(DBZH ~ sin((2 * pi * azimuth) / 180) + cos((2 * pi * azimuth) / 180), data = df)
     }
 
     b0 <- coef(fit.lm)[1]
@@ -415,21 +429,41 @@ plot_azimuth_effect <- function(pvol) {
     distinct() %>%
     ggplot() +
     geom_point(aes(x = azimuth, y = DBZH), color = "red", size = 0.15) +
-    geom_point(aes(x = azimuth, y = sine_orig), color = "red", size = 0.15) +
     geom_point(aes(x = azimuth, y = DBZH_cor), color = "blue", size = 0.15) +
-    geom_point(aes(x = azimuth, y = sine_cor), color = "blue", size = 0.15) +
+    geom_line(aes(x = azimuth, y = sine_cor), color = "white", size = 1.5) +
+    geom_line(aes(x = azimuth, y = sine_cor), color = "blue", size = 0.7) +
+    geom_line(aes(x = azimuth, y = sine_orig), color = "white", size = 1.5) +
+    geom_line(aes(x = azimuth, y = sine_orig), color = "red", size = 0.7) +
     facet_wrap(~elangle_f, scales = "free") +
     labs(title = paste0(toupper(pvol$radar), " ", pvol$datetime))
 }
 
-cores <- 12
+cores <- 14
 files <- list.files(path = "data/pvol", full.names = TRUE)
 files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files <- str_replace(remaining_files, "/pvol/", "/rbc/")
 remaining_files <- files[!file.exists(remaining_files)]
+processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = TRUE,
+                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = TRUE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+
+# files <- Sys.glob("data/rbc/*.RDS")
+#
+# test <- pbmclapply(files, function(x) {
+#   rbc <- readRDS(x)
+#   azim_plot <- plot_azimuth_effect(rbc)
+#
+#   filebase <- tools::file_path_sans_ext(basename(x))
+#   if (stringr::str_ends(filebase, "averaged")) azim_method <- "averaged"
+#   if (stringr::str_ends(filebase, "full")) azim_method <- "full"
+#
+#   azimuth_plot_filename <- paste0("data/rbc/", filebase, "_azimuth_", azim_method, ".png")
+#   ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
+#
+# }, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 
 
