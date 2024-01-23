@@ -1,0 +1,508 @@
+---
+title: "Netherlands Bird Migration Map"
+subtitle: "Based on weather radar measurements"
+author: Bart Hoekstra
+output: html_notebook
+---
+
+```{r setup, message=FALSE, warning=TRUE, include=FALSE}
+library(tidyverse)
+library(bioRad)
+library(suncalc)
+library(terra)
+library(raster)
+library(sf)
+library(stars)
+library(parallel)
+```
+
+# Download polar volume data from peak nights
+
+```{r}
+vp_mtr <- read_csv("data/vp_mtr_ordered_seasonal_day_night_migration.csv", 
+                   col_types = cols(
+                     date_trunc = col_datetime(),
+                     odim_code = col_character(),
+                     year_season = col_character(),
+                     year = col_double(),
+                     season = col_character(),
+                     day_night = col_character(),
+                     slope_max = col_double(),
+                     slope_max_time = col_datetime(),
+                     mtr = col_double(),
+                     prop = col_double(),
+                     mtr_cum = col_double(),
+                     prop_cum = col_double(),
+                     top = col_double()
+                  )
+                  )
+```
+
+```{r}
+vp_mtr_cum50 <- vp_mtr %>%
+  filter(prop_cum < 0.5 | (lag(prop_cum) < 0.5 & prop_cum >= 0.5))
+
+vp_mtr_cum50
+```
+
+```{r}
+calculate_scantime <- function(r) {
+  if (r["odim_code"] == "nlhrw") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (r["odim_code"] == "nldhl") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+  
+  if (r["day_night"] == "daylight") {
+    scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]), keep = "sunrise")
+    scantime <- scantime$sunrise + hours(2)
+  }
+  if (r["day_night"] == "night") {
+    scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]) - 1, keep = "sunset")
+    scantime <- scantime$sunset + hours(2) + minutes(30)
+  }
+  
+  scantime <- round_date(scantime, "5 mins")
+}
+
+scantimes <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_scantime, simplify = FALSE)))
+
+vp_mtr_cum50$moment <- scantimes
+vp_mtr_cum50
+```
+
+```{r}
+# minio/pvol/NL/HRW/2016/08/31/NLHRW_pvol_20160831T2350_6356.h5
+dts <- dplyr::select(vp_mtr_cum50, odim_code, moment)
+
+dts_hrw <- dts %>%
+  filter(odim_code == "nlhrw") %>%
+  pull(moment)
+
+filepaths_hrw <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5")
+filepaths_hrw_alt <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5")
+paths <- list(paste0("mc cp ", filepaths_hrw, " ."), paste0("mc cp ", filepaths_hrw_alt, " ."))
+
+write_lines(unlist(paths), file = "data/pvol/hrw_files.sh", )
+
+dts_dhl <- dts %>%
+  filter(odim_code == "nldhl") %>%
+  pull(moment)
+
+filepaths_dhl <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5")
+filepaths_dhl_alt <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5")
+paths <- list(paste0("mc cp ", filepaths_dhl, " ."), paste0("mc cp ", filepaths_dhl_alt, " ."))
+
+write_lines(unlist(paths), file = "data/pvol/dhl_files.sh", )
+```
+
+```{r}
+downloaded_files <- list.files("data/pvol", full.names = TRUE)
+downloaded_files <- downloaded_files[!downloaded_files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
+downloaded_files_hrw <- downloaded_files[str_detect(downloaded_files, "NLHRW")]
+downloaded_files_dhl <- downloaded_files[str_detect(downloaded_files, "NLDHL")]
+
+downloaded_files_dhl_dts <- as_datetime(unlist(
+  lapply(downloaded_files_dhl, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))))
+downloaded_files_hrw_dts <- as_datetime(unlist(
+  lapply(downloaded_files_hrw, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))))
+
+downloaded_dts_dhl <- data.frame(pvolfile = downloaded_files_dhl, moment = downloaded_files_dhl_dts)
+downloaded_dts_dhl$odim_code <- "nldhl"
+downloaded_dts_hrw <- data.frame(pvolfile = downloaded_files_hrw, moment = downloaded_files_hrw_dts)
+downloaded_dts_hrw$odim_code <- "nlhrw"
+downloaded_dts <- bind_rows(downloaded_dts_dhl, downloaded_dts_hrw)
+
+vp_mtr_cum50 %>%
+  left_join(downloaded_dts, by = join_by(odim_code == odim_code, moment == moment)) -> vp_mtr_cum50
+```
+
+# Process RBCs
+This is done following the `pipeline.R` function.
+
+# RBC Selection
+Blablabla
+
+# Selected usable scans
+
+```{r}
+accepted_files <- list.files("data/rbc_png/Accepted/")
+rejected_files <- list.files("data/rbc_png/Rejected/")
+
+rbc_file_from_png <- function(file, azim_method = "full") {
+  f <- basename(file)
+  ss <- str_split(f, "_")[[1]][1:4]
+  radar <- str_to_lower(ss[1])
+  moment <- parse_date_time(ss[3], "YmdHM")
+  fp <- paste0("data/rbc/", str_c(ss, collapse = "_"), "_", azim_method, ".RDS")
+  return(list("odim_code" = radar, "moment" = moment, "rbcfile" = fp))
+}
+
+accepted <- bind_rows(lapply(accepted_files, rbc_file_from_png)) %>% mutate(status = "Accepted")
+rejected <- bind_rows(lapply(rejected_files, rbc_file_from_png)) %>% mutate(status = "Rejected")
+
+classified_moments <- bind_rows(accepted, rejected)
+
+vp_mtr_cum50 %>%
+  left_join(classified_moments, by = join_by(odim_code, moment)) %>%
+  mutate(status = replace_na(status, "Rejected")) %>%
+  identity() -> vp_mtr_cum50_cl
+```
+
+# Process scans to stacks
+
+```{r}
+stack_rbcs <- function(rbcs, year_season, odimcode, daytime, threshold_max = 2500, mean_method = "pixels", overwrite = FALSE) {
+  # See if files exist already
+  daytime <- if_else(daytime == "night", "night", "day")
+  filepath <- paste0("data/stacks/", 
+                     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS")
+  rasterpath <- paste0("data/stacks/", 
+                       str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif")
+
+  if (file.exists(filepath) && file.exists(rasterpath)) {
+    if (!overwrite) {
+      return("exists")
+    }
+  }
+  r <- rbcs[[1]]
+  rp <- r
+  cs <- rbcs[[1]]$data@data$VIR
+  cs <- cs * 0
+
+  VIRs <- list()
+  css <- list()
+
+  for(i in seq_along(rbcs)) {
+    VIR <- rbcs[[i]]$data@data$VIR
+    RAIN <- rbcs[[i]]$data@data$rain
+    VIR[which(VIR > threshold_max)] <- NA
+    VIR[which(VIR == 0)] <- NA
+    VIR[which(RAIN > 0)] <- NA
+    cs <- cs + 1 - (is.na(VIR) * 1)
+    VIRs <- append(VIRs, list(VIR))
+    css <- append(css, list(as.matrix(cs)))
+  }
+
+  VIR_summed <- VIRs[[1]]
+  VIR_summed[is.na(VIR_summed)] <- 0
+  rp$data@data$VIR_1 <- VIR_summed
+
+  for (j in seq_along(VIRs)) {
+    if (j == 1) next
+    VIR <- VIRs[[j]]
+    VIR[is.na(VIR)] <- 0
+    VIR_summed <- VIR_summed + VIR
+
+    if (mean_method == "pixels") {
+      rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed / css[[j]])
+    }
+    if (mean_method == "scans") {
+      rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed / j)
+    }
+  }
+  remove_variables <- c("VID", "R", "overlap", "eta_sum", "eta_sum_expected", "rain")
+  for (var in remove_variables) {
+    rp$data@data[var] <- NULL
+  }
+  rp$data$css <- as.vector(css[[length(css)]])
+  rp$data$VIR <- as.vector(as.matrix(rp$data@data[paste0("VIR_", length(VIRs))]))
+
+  rp <- calculate_param(rp, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
+  saveRDS(rp, filepath)
+  rrast <- terra::rast(rp$data)
+  fixedlayers <- c("VIR", "css", "VIR_log10", "VIR_log", "VIR_sqrt")
+  layernames <- names(rrast)
+  layerorder <- c(which(layernames %in% fixedlayers), which(!layernames %in% fixedlayers))
+  rrast <- subset(rrast, layerorder)
+  terra::writeRaster(rrast, rasterpath, overwrite = overwrite)
+}
+
+g <- expand.grid(year_season = unique(vp_mtr_cum50_cl$year_season),
+                 day_night = unique(vp_mtr_cum50_cl$day_night),
+                 odim_code = unique(vp_mtr_cum50_cl$odim_code))
+
+generate_stacks <- function(year_season, day_night, odim_code,
+                            th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
+                            # th = c(1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
+                            mm = c("pixels", "scans")) {
+  vp_mtr_cum50_cl %>%
+    filter(status == "Accepted", year_season == !!year_season, day_night == !!day_night, odim_code == !!odim_code) %>%
+    drop_na() %>%
+    arrange(top) %>%
+    pull(rbcfile) -> files
+  
+  if (is.null(files)) return("files do not exist")
+  
+  gr <- expand.grid(th = th, mm = mm, stringsAsFactors = FALSE)
+  gr <- asplit(gr, 1)
+  
+  rbcs <- lapply(files, readRDS)
+  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, year_season = year_season, daytime = day_night, odimcode = odim_code, 
+                                     threshold_max = as.numeric(x["th"]), mean_method = x["mm"], overwrite = TRUE)})
+}
+
+processing_stacking <- mcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code, 
+                                mc.cores = 6, mc.preschedule = FALSE)
+saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+```
+
+# Combine season stacks to radar, time stacks
+
+```{r}
+final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
+                            season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            th = c(1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
+                            mm = c("pixels", "scans"))
+
+for (i in 1:nrow(final_stacks)) {
+  fs <- final_stacks[i, ]
+  rastfiles <- Sys.glob(paste0("data/stacks/", fs$odim_code, "_*_", fs$season, "_", fs$daytime, ".tif"))
+  rastfiles <- Sys.glob(
+    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
+  )
+  # Store every 1st layer
+  layer_ids <- seq(from = 1, by = 10, length.out = length(rastfiles))
+  
+  stk <- terra::rast(lapply(rastfiles, function(x) {
+    terra::rast(x, lyrs = "VIR")
+  }))
+  stk <- terra::rast(rastfiles, lyrs = "VIR")
+  rmean <- app(stk, max)
+  file_out <- paste0("data/final_stacks/", fs$odim_code, "_", fs$season, "_", fs$daytime, ".tif")
+  
+  if (fs$odim_code == "NLHRW") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (fs$odim_code == "NLDHL") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+  
+  circle_radius <- 100000  # 100 km in meters
+
+  # Create a simple features (sf) point object
+  center_point <- st_sfc(st_point(c(lon, lat)))
+  
+  # Buffer the point to create a circular polygon
+  st_crs(center_point) <- 4326
+  center_point <- st_transform(center_point, crs = st_crs(rmean))
+  circle <- st_buffer(center_point, dist = circle_radius)
+  # mask(x = raster_data, mask = circle)
+  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(rmean, values = NA_real_), nx = 640, ny = 640))
+  masked_raster[masked_raster == 0] <- NA
+  
+  raster_masked <- terra::mask(rmean, as(masked_raster, "SpatRaster"))
+  
+  writeRaster(raster_masked, file_out, overwrite = TRUE)
+}
+
+
+
+  # if (r["odim_code"] == "nlhrw") {
+  #   lat <- 51.8371
+  #   lon <- 5.138
+  # }
+  # if (r["odim_code"] == "nldhl") {
+  #   lat <- 52.9528
+  #   lon <- 4.79061
+  # }
+
+
+
+# Read your raster file
+raster_file <- "data/stacks/NLHRW_2022_autumn_night.tif"
+raster_data <- raster(raster_file)
+
+# Assuming you have a reference point (longitude, latitude) for the center of your circle
+center_lon <- rbc$geo$lon
+center_lat <- rbc$geo$lat
+
+# Create a circular polygon with a radius of 100 km
+circle_radius <- 100000  # 100 km in meters
+
+# Create a simple features (sf) point object
+center_point <- st_sfc(st_point(c(center_lon, center_lat)))
+
+# Buffer the point to create a circular polygon
+st_crs(center_point) <- 4326
+center_point <- st_transform(center_point, crs = st_crs(rbc$data@proj4string))
+circle <- st_buffer(center_point, dist = circle_radius)
+# mask(x = raster_data, mask = circle)
+masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(raster_data, values = NA_real_), nx = 640, ny = 640))
+masked_raster[masked_raster == 0] <- NA
+
+raster_masked <- raster::mask(raster_data, as(masked_raster, "Raster"))
+
+leaflet() %>%
+  addTiles() %>%
+  addMeasure(primaryLengthUnit = "meters") %>%
+  addMarkers(data = poi) %>%
+  addPolygons(data = buff) %>%
+  addRasterImage(raster_masked)
+
+```
+
+
+
+# Process RBCs
+
+```{r}
+files <- list.files("data/pvol", full.names = TRUE)
+
+file_datetimes <- as.POSIXct(unlist(lapply(str_split(files, "_"), function(x) x[[3]])), format = "%Y%m%dT%H%M")
+autumn_files <- files[month(file_datetimes) > 6]
+spring_files <- files[!month(file_datetimes) > 6]
+```
+
+```{r}
+# plot_rbc <- function(pvolfile) {
+  pvolfile <- "data/pvol/NLHRW_pvol_20230318T2020_6356.h5"
+  pvol <- read_pvolfile(pvolfile, param = c("DBZH", "DBZV", "VRADH", "RHOHV"))
+  vp <- calculate_vp(pvolfile)
+  # rbc_ppi <- integrate_to_ppi(pvol, vp, xlim = c(-160000, 160000), ylim = c(-160000, 160000), res = 500)
+  rbc_ppi <- visual_filter(pvolfile, vp)
+  ppi <- project_as_ppi(pvol$scans[[1]], range_max = 160000, grid_size = 500)
+  if(!is.null(ppi$data$RHOHV)) {
+    prods <- plot(ppi, param = "DBZH") / plot(ppi, param = "VRADH") / plot(ppi, param = "RHOHV")
+  } else {
+    prods <- plot(ppi, param = "DBZH") / plot(ppi, param = "VRADH")
+  }
+  rbc_ppi$data[["VIR"]][rbc_ppi$data[["rain"]] > 0] <- NA
+  prods | plot(rbc_ppi)
+  ggsave(paste0("data/pvol/", tools::file_path_sans_ext(basename(pvolfile)), ".png"), width = 15, height = 7)
+  saveRDS(rbc_ppi, paste0("data/pvol/", tools::file_path_sans_ext(basename(pvolfile)), ".RDS"))
+# }
+```
+
+```{r, eval=FALSE}
+mclapply(autumn_files, plot_rbc, mc.cores = 15)
+mclapply(spring_files, plot_rbc, mc.cores = 15)
+```
+
+```{r}
+plot_rbc_filter <- function(pvolfile) {
+  # pvolfile <- "data/pvol/NLHRW_pvol_20230318T2020_6356.h5"
+  pvol <- read_pvolfile(pvolfile, param = c("DBZH", "DBZV", "VRADH", "RHOHV"))
+  vp <- calculate_vp(pvolfile)
+  # rbc_ppi <- integrate_to_ppi(pvol, vp, xlim = c(-160000, 160000), ylim = c(-160000, 160000), res = 500)
+  rbc_ppi <- visual_filter(pvolfile, vp)
+  ppi <- project_as_ppi(pvol$scans[[1]], range_max = 160000, grid_size = 500)
+  if(!is.null(ppi$data$RHOHV)) {
+    prods <- plot(ppi, param = "DBZH") / plot(ppi, param = "VRADH") / plot(ppi, param = "RHOHV")
+  } else {
+    prods <- plot(ppi, param = "DBZH") / plot(ppi, param = "VRADH")
+  }
+  rbc_ppi <- calculate_param(rbc_ppi, VIR_R = VIR)
+  rbc_ppi$data[["VIR"]][rbc_ppi$data[["rain"]] > 0] <- NA
+  prods | plot(rbc_ppi)
+  ggsave(paste0("data/rbc-filtered/", tools::file_path_sans_ext(basename(pvolfile)), ".png"), width = 15, height = 7)
+  saveRDS(rbc_ppi, paste0("data/rbc-filtered/", tools::file_path_sans_ext(basename(pvolfile)), ".RDS"))
+}
+```
+
+```{r}
+# plot_rbc_filter(list.files("data/pvol-selected/", pattern = "\\.h5", full.names = TRUE)[1])
+source("pipeline.R")
+mclapply(list.files("data/pvol-selected/", pattern = "\\.h5", full.names = TRUE), plot_rbc_filter, mc.cores = 15)
+```
+
+```{r}
+files <- list.files("data/rbc-filtered-selected", pattern = "\\.RDS", full.names = TRUE)
+
+file_datetimes <- as.POSIXct(unlist(lapply(str_split(files, "_"), function(x) x[[3]])), format = "%Y%m%dT%H%M")
+autumn_files <- files[month(file_datetimes) > 6]
+spring_files <- files[!month(file_datetimes) > 6]
+```
+
+```{r}
+stack_rbcs <- function(files, threshold_max = 5000) {
+  rbcs <- lapply(files, readRDS)
+  VIRs <- lapply(rbcs, function(x) {
+    VIR <- x$data$VIR
+    VIR[VIR > threshold_max] <- NA
+    VIR
+  })
+  
+  VIR_summed <- VIRs[[1]]
+  VIR_summed[is.na(VIR_summed)] <- 0
+  
+  for (i in seq_along(VIRs)) {
+    if (i == 1) next
+    VIR <- VIRs[[i]]
+    VIR[is.na(VIR)] <- 0
+    VIR_summed <- VIR_summed + VIR
+  }
+  
+  r <- rbcs[[1]]
+  r$data$VIR <- VIR_summed
+  r <- calculate_param(r, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
+  r
+}
+```
+
+
+```{r}
+autumn_files_dhl <- autumn_files[str_detect(autumn_files, "NLDHL")]
+autumn_files_hrw <- autumn_files[str_detect(autumn_files, "NLHRW")]
+
+rbc_autumn_dhl <- stack_rbcs(autumn_files_dhl)
+rbc_autumn_hrw <- stack_rbcs(autumn_files_hrw)
+
+writeRaster(brick(rbc_autumn_dhl$data), "data/stacks/rbc_autumn_dhl_stack.tif", overwrite = TRUE)
+writeRaster(brick(rbc_autumn_hrw$data), "data/stacks/rbc_autumn_hrw_stack.tif", overwrite = TRUE)
+
+spring_files_dhl <- spring_files[str_detect(spring_files, "NLDHL")]
+spring_files_hrw <- spring_files[str_detect(spring_files, "NLHRW")]
+
+rbc_spring_dhl <- stack_rbcs(spring_files_dhl)
+rbc_spring_hrw <- stack_rbcs(spring_files_hrw)
+
+writeRaster(brick(rbc_spring_dhl$data), "data/stacks/rbc_spring_dhl_stack.tif", overwrite = TRUE)
+writeRaster(brick(rbc_spring_hrw$data), "data/stacks/rbc_spring_hrw_stack.tif", overwrite = TRUE)
+```
+
+```{r}
+rbc_composite_autumn <- composite_ppi(list(rbc_autumn_dhl, rbc_autumn_hrw), param = "VIR", res = 500, method = "max")
+rbc_composite_autumn <- calculate_param(rbc_composite_autumn, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
+writeRaster(brick(rbc_composite_autumn$data), "data/stacks/rbc_autumn_composite_stack.tif", overwrite = TRUE)
+
+rbc_composite_spring <- composite_ppi(list(rbc_spring_dhl, rbc_spring_hrw), param = "VIR", res = 500, method = "max")
+rbc_composite_spring <- calculate_param(rbc_composite_spring, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
+writeRaster(brick(rbc_composite_spring$data), "data/stacks/rbc_spring_composite_stack.tif", overwrite = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
