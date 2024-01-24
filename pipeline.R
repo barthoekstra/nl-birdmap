@@ -7,6 +7,7 @@ library(pbmcapply)
 library(sf)
 library(raster)
 library(patchwork)
+library(ggdark)
 
 visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged") {
   rl <- 160000
@@ -165,11 +166,56 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
 
   # 9. Save Plot
   cat("Save plot\n")
-  (plot(ppi_dbzh, param = "DBZH") + plot(ppi_vradh, param = "VRADH") + plot(ppi_dbzh, param = "RHOHV")) /
-    (plot(rbc_orig, param = "VID") + plot(rbc, param = "VID") + plot(rbc, param = "rain", zlim = c(0, 10))) +
-    plot_annotation(title = paste0(toupper(pvol$radar), " ", pvol$datetime, " / Azim method: ", azim_method)) -> rbc_plot
-  ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 10)
+  data <- raster::as.data.frame(raster::raster(ppi_dbzh$data), xy = TRUE)
+  xlim <- c(min(data$x), max(data$x))
+  ylim <- c(min(data$y), max(data$y))
+
+  p_dbzh <- plot_ppi_nl(ppi = ppi_dbzh, param = "DBZH", xlim = xlim, ylim = ylim, title = "Reflectivity (0.3 deg)")
+  p_vradh <- plot_ppi_nl(ppi = ppi_dbzh, param = "VRADH", xlim = xlim, ylim = ylim, title = "Radial velocity (0.3 deg)")
+  p_rhohv <- plot_ppi_nl(ppi = ppi_dbzh, param = "RHOHV", xlim = xlim, ylim = ylim, title = "Correlation coefficient (0.3 deg)")
+  p_rbc_orig <- plot_ppi_nl(ppi = rbc_orig, param = "VIR", xlim = xlim, ylim = ylim, title = "Original RBC") + viridis::scale_fill_viridis(name = "VIR", option = "inferno")
+  p_rbc <- plot_ppi_nl(ppi = rbc, param = "VIR", xlim = xlim, ylim = ylim, title = "Filtered & Corrected RBC (w/ rain)") + viridis::scale_fill_viridis(name = "VIR", option = "inferno")
+  p_rain <- plot_ppi_nl(ppi = rbc, param = "rain", xlim = xlim, ylim = ylim, title = "Elevation scans with rain") + viridis::scale_fill_viridis(name = "#", option = "inferno")
+
+  radar <- if_else(pvol$radar == "nlhrw", "Herwijnen", "Den Helder")
+
+  (p_dbzh + p_vradh + p_rhohv) / (p_rbc_orig + p_rbc + p_rain) +
+    plot_annotation(title = paste0(radar, " ", pvol$datetime, " / Azimuth-correction method: ", azim_method)) &
+    dark_theme_bw() &
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank()) -> rbc_plot
+  ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 8)
 }
+
+data <- raster::as.data.frame(raster::raster(ppi_dbzh$data), xy = TRUE)
+p <- plot(ppi_dbzh, na.value = "NA")
+# c <- crs(raster::raster(ppi_dbzh$data))
+c <- crs(ppi_dbzh$data)
+nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
+nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+
+p +
+  geom_sf(data = nl, fill = "NA", color = "white", linewidth = .5) +
+  geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .5) +
+  geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .5) +
+  geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .5) +
+  coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE) +
+  dark_theme_bw() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+# ggplot() +
+#   geom_raster(aes(x = x, y = y, fill = DBZH), data = data) +
+#   geom_sf(data = nl, fill = "white", color = "white", linewidth = .5, alpha = 0.1) +
+#   geom_sf(data = nhol_buf) +
+#   geom_sf(data = nhol) +
+#   coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE)
+
+
+ggplot(ppi_dbzh$data) + geom_raster()
+
 
 range_coverage <- function(scan) {
   s <- as.matrix(scan$params$DBZH)
@@ -430,20 +476,42 @@ plot_azimuth_effect <- function(pvol) {
     ggplot() +
     geom_point(aes(x = azimuth, y = DBZH), color = "red", size = 0.15) +
     geom_point(aes(x = azimuth, y = DBZH_cor), color = "blue", size = 0.15) +
-    geom_line(aes(x = azimuth, y = sine_cor), color = "white", size = 1.5) +
-    geom_line(aes(x = azimuth, y = sine_cor), color = "blue", size = 0.7) +
-    geom_line(aes(x = azimuth, y = sine_orig), color = "white", size = 1.5) +
-    geom_line(aes(x = azimuth, y = sine_orig), color = "red", size = 0.7) +
+    geom_line(aes(x = azimuth, y = sine_cor), color = "white", linewidth = 1.5) +
+    geom_line(aes(x = azimuth, y = sine_cor), color = "blue", linewidth = 0.7) +
+    geom_line(aes(x = azimuth, y = sine_orig), color = "white", linewidth = 1.5) +
+    geom_line(aes(x = azimuth, y = sine_orig), color = "red", linewidth = 0.7) +
     facet_wrap(~elangle_f, scales = "free") +
     labs(title = paste0(toupper(pvol$radar), " ", pvol$datetime))
+}
+
+plot_ppi_nl <- function(ppi, param, xlim, ylim, title) {
+  c <- crs(ppi$data)
+  nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
+  nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+  nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+
+  plot(ppi, param = param) +
+    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+    geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
+    geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
+    geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
+    coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE) +
+    ggtitle(title) +
+    dark_theme_bw() +
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank())
 }
 
 cores <- 14
 files <- list.files(path = "data/pvol", full.names = TRUE)
 files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
-remaining_files <- str_replace(remaining_files, "/pvol/", "/rbc/")
-remaining_files <- files[!file.exists(remaining_files)]
+remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.RDS"))
+remaining_files_full <- files[!file.exists(remaining_files_full)]
+remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
+remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
+remaining_files <- unique(c(remaining_files_averaged, remaining_files_full))
 processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = TRUE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
