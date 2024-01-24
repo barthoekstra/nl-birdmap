@@ -13,7 +13,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   rl <- 160000
 
   rbc_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
-  rbc_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
+  rbc_plot_filename <- paste0("data/rbc_png/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
   if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
     return("exists")
