@@ -260,24 +260,27 @@ saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys
 final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
                             season = c("spring", "autumn"),
                             daytime = c("day", "night"),
-                            th = c(1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
+                            th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
                             mm = c("pixels", "scans"))
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
-  rastfiles <- Sys.glob(paste0("data/stacks/", fs$odim_code, "_*_", fs$season, "_", fs$daytime, ".tif"))
+  # rastfiles <- Sys.glob(paste0("data/stacks/", fs$odim_code, "_*_", fs$season, "_", fs$daytime, ".tif"))
   rastfiles <- Sys.glob(
     paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
   )
   # Store every 1st layer
-  layer_ids <- seq(from = 1, by = 10, length.out = length(rastfiles))
+  # layer_ids <- seq(from = 1, by = 10, length.out = length(rastfiles))
   
   stk <- terra::rast(lapply(rastfiles, function(x) {
-    terra::rast(x, lyrs = "VIR")
+    tryCatch(terra::rast(x, lyrs = "VIR"), 
+             error = function(err) {
+               
+             })
   }))
-  stk <- terra::rast(rastfiles, lyrs = "VIR")
+  # stk <- terra::rast(rastfiles, lyrs = "VIR")
   rmean <- app(stk, max)
-  file_out <- paste0("data/final_stacks/", fs$odim_code, "_", fs$season, "_", fs$daytime, ".tif")
+  file_out <- paste0("data/final-stacks/", fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
   
   if (fs$odim_code == "NLHRW") {
     lat <- 51.8371
