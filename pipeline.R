@@ -187,36 +187,6 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 8)
 }
 
-data <- raster::as.data.frame(raster::raster(ppi_dbzh$data), xy = TRUE)
-p <- plot(ppi_dbzh, na.value = "NA")
-# c <- crs(raster::raster(ppi_dbzh$data))
-c <- crs(ppi_dbzh$data)
-nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
-nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
-nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
-radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
-
-p +
-  geom_sf(data = nl, fill = "NA", color = "white", linewidth = .5) +
-  geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .5) +
-  geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .5) +
-  geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .5) +
-  coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE) +
-  dark_theme_bw() +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank())
-
-# ggplot() +
-#   geom_raster(aes(x = x, y = y, fill = DBZH), data = data) +
-#   geom_sf(data = nl, fill = "white", color = "white", linewidth = .5, alpha = 0.1) +
-#   geom_sf(data = nhol_buf) +
-#   geom_sf(data = nhol) +
-#   coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE)
-
-
-ggplot(ppi_dbzh$data) + geom_raster()
-
-
 range_coverage <- function(scan) {
   s <- as.matrix(scan$params$DBZH)
   class(s) <- "matrix"
