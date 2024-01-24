@@ -466,6 +466,7 @@ remove_azimuth_effect <- function(pvol, method = "averaged") {
 }
 
 plot_azimuth_effect <- function(pvol) {
+  radar <- if_else(pvol$radar == "nlhrw", "Herwijnen", "Den Helder")
   pvol$reflectivity %>%
     drop_na() %>%
     slice_sample(n = 10, by = c(elangle, azimuth)) %>%
@@ -481,7 +482,7 @@ plot_azimuth_effect <- function(pvol) {
     geom_line(aes(x = azimuth, y = sine_orig), color = "white", linewidth = 1.5) +
     geom_line(aes(x = azimuth, y = sine_orig), color = "red", linewidth = 0.7) +
     facet_wrap(~elangle_f, scales = "free") +
-    labs(title = paste0(toupper(pvol$radar), " ", pvol$datetime))
+    labs(title = paste0(radar, " ", pvol$datetime))
 }
 
 plot_ppi_nl <- function(ppi, param, xlim, ylim, title) {
