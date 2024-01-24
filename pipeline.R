@@ -32,7 +32,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
   if (!file.exists(vp_filename)) {
     cat("Calculating vp\n")
-    vp <- calculate_vp(pvolfile, vpfile = vp_filename)
+    vp <- calculate_vp(pvolfile, vpfile = vp_filename, n_layer = 100, h_layer = 50)
   } else {
     cat("Loading vp\n")
     vp <- read_vpfiles(vp_filename)
