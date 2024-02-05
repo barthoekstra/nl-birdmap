@@ -77,12 +77,15 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   pvol$scans[[lowest_dualprf_scan]] <- NULL
 
   # 5. Remove azimuth-effect
-  cat("Removing azimuth-effect\n")
-  pvol <- remove_azimuth_effect(pvol, method = azim_method)
-  azim_plot <- plot_azimuth_effect(pvol)
-
-  azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
-  ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
+  if (str_to_lower(pvol$radar) == "nlhrw") {
+    cat("Removing azimuth-effect for Herwijnen radar\n")
+    pvol <- remove_azimuth_effect(pvol, method = azim_method)
+    azim_plot <- plot_azimuth_effect(pvol)
+    azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
+    ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
+  } else {
+    cat("Skipping removing azimuth-effect for Den Helder radar\n")
+  }
 
   # 6. Classify rain
   ## Calculate DPR
@@ -158,7 +161,9 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   rbc$data$rain <- as.vector(rain_elevations)
 
   ## Add reflectivity correction to RBC
-  rbc$reflectivity <- pvol$reflectivity
+  if (str_to_lower(pvol$radar) == "nlhrw") {
+    rbc$reflectivity <- pvol$reflectivity
+  }
 
   # 8. Save RBC
   cat("Save RBC\n")
@@ -175,7 +180,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   p_rhohv <- plot_ppi_nl(ppi = ppi_dbzh, param = "RHOHV", xlim = xlim, ylim = ylim, title = "Correlation coefficient (0.3 deg)")
   p_rbc_orig <- plot_ppi_nl(ppi = rbc_orig, param = "VIR", xlim = xlim, ylim = ylim, title = "Original RBC") + viridis::scale_fill_viridis(name = "VIR", option = "inferno")
   p_rbc <- plot_ppi_nl(ppi = rbc, param = "VIR", xlim = xlim, ylim = ylim, title = "Filtered & Corrected RBC (w/ rain)") + viridis::scale_fill_viridis(name = "VIR", option = "inferno")
-  p_rain <- plot_ppi_nl(ppi = rbc, param = "rain", xlim = xlim, ylim = ylim, title = "Elevation scans with rain") + viridis::scale_fill_viridis(name = "#", option = "inferno")
+  p_rain <- plot_ppi_nl(ppi = rbc, param = "rain", xlim = xlim, ylim = ylim, title = "Elevation scans with rain") + viridis::scale_fill_viridis(name = "#", option = "inferno", limits = c(0, 15))
 
   radar <- if_else(pvol$radar == "nlhrw", "Herwijnen", "Den Helder")
 
@@ -467,7 +472,7 @@ plot_ppi_nl <- function(ppi, param, xlim, ylim, title) {
     geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
     geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
     geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
-    coord_sf(xlim = c(min(data$x), max(data$x)), ylim = c(min(data$y), max(data$y)), expand = FALSE) +
+    coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
     ggtitle(title) +
     dark_theme_bw() +
     theme(axis.title.x = element_blank(),
@@ -483,6 +488,9 @@ remaining_files_full <- files[!file.exists(remaining_files_full)]
 remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
 remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
 remaining_files <- unique(c(remaining_files_averaged, remaining_files_full))
+
+# processing <- lapply(remaining_files[100:103], visual_filter, azim_method = "averaged", overwrite = TRUE)
+
 processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = TRUE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
