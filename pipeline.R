@@ -492,10 +492,10 @@ remaining_files <- unique(c(remaining_files_averaged, remaining_files_full))
 
 # processing <- lapply(remaining_files[100:103], visual_filter, azim_method = "averaged", overwrite = TRUE)
 
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = TRUE,
+processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = FALSE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = TRUE,
+processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
