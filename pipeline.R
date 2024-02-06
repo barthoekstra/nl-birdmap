@@ -257,6 +257,7 @@ interpolate_em <- function(scan, beams) {
     s[, cb] <- mi
   }
 
+  class(s) <- c("param", "matrix", "array")
   scan$params$DBZH <- s
   return(scan)
 }
