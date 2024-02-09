@@ -328,7 +328,7 @@ for (i in 1:nrow(final_stacks)) {
 }
 ```
 
-# Combine radar, time stacks to national-level scans
+# Combine radar, time stacks to national-level maps
 
 ```{r}
 final_stacks <- expand.grid(season = c("spring", "autumn"),
@@ -406,6 +406,144 @@ save_map <- function(x) {
 processing <- mclapply(fstacks, save_map, mc.cores = 10, mc.preschedule = FALSE)
 
 saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+```
+
+# Visualisations
+
+```{r, fig.width=6, fig.height=5}
+mask_raster <- function(r, odimcode) {
+  if (odimcode == "NLHRW") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (odimcode == "NLDHL") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+  
+  circle_radius <- 100000  # 100 km in meters
+  
+  # Create a simple features (sf) point object
+  center_point <- st_sfc(st_point(c(lon, lat)))
+  
+  # Buffer the point to create a circular polygon
+  st_crs(center_point) <- 4326
+  center_point <- st_transform(center_point, crs = st_crs(r))
+  circle <- st_buffer(center_point, dist = circle_radius)
+  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(r, values = NA_real_), nx = 640, ny = 640))
+  masked_raster[masked_raster == 0] <- NA
+  
+  raster_masked <- terra::mask(r, as(masked_raster, "SpatRaster"))
+  return(raster_masked)
+}
+
+odimcode <- "NLHRW"
+r <- rast("data/stacks/NLHRW_2022_autumn_thresh_5000_avg_weighted_scans_day.tif") %>% mask_raster(odimcode)
+c <- crs(r)
+nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
+if (odimcode == "NLHRW") {
+  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c) %>% filter(fid == 2)  
+} else {
+  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c) %>% filter(fid == 1)
+}
+radar_bbox <- st_bbox(radar_buf)
+
+
+r %>%
+  as.data.frame(xy = TRUE) %>%
+  dplyr::select(x, y, starts_with("VIR_"), -c(VIR_log10, VIR_log, VIR_sqrt)) %>%
+  pivot_longer(cols = starts_with("VIR_"), names_to = "scan", values_to = "VIR") %>%
+  mutate(scan = str_replace(scan, "VIR_", ""),
+         VIR = replace_na(VIR, 0)) %>%
+  identity() -> rdf
+
+for (sc in unique(rdf$scan)) {
+  rdf %>%
+    filter(scan == sc) -> rd
+  
+  ggplot() +
+    geom_tile(data = rd, aes(x = x, y = y, fill = VIR)) +
+    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+    geom_sf(data = st_difference(nl, radar_buf), fill = alpha("black", .99), color = alpha("black", .5), linewidth = 4) +
+    geom_sf(data = radar_buf, color = "white", fill = "NA", linewidth = .3) +
+    coord_sf(xlim = c(radar_bbox$xmin, radar_bbox$xmax), ylim = c(radar_bbox$ymin, radar_bbox$ymax + 40000)) +
+    scale_fill_viridis_c(option = "inferno", limits = c(0, 1000), oob = scales::squish) +
+    dark_theme_minimal() +
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.background = element_rect(color = "black", fill = "black", size = 6),
+          # legend.position = "bottom",
+          legend.position = c(0.9, 0.1),
+          legend.title = element_text(vjust = 0.1)) +
+    annotate("text", x = min(rd$x), y = max(rd$y) + 40000, label = "Autumn 2022", hjust = 0, size = 6) +
+    annotate("text", x = min(rd$x), y = max(rd$y) + 25000, label = "by night", hjust = 0, size = 5) +
+    annotate("text", x = max(rd$x), y = max(rd$y) + 40000, label = "Scans in stack", hjust = 1, size = 6) +
+    annotate("text", x = max(rd$x) + 2500, y = max(rd$y) + 20000, label = paste0(sc), hjust = 1, size = 12) +
+    guides(fill = guide_colorbar(title.position = "left"))
+  
+  ggsave(paste0("data/stacks_gifs/NLHRW_2022_", sc, ".png"), width = 6, height = 7)
+}
+# ffmpeg -framerate 1 -pattern_type glob -i '*.png' -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
+```
+
+```{r}
+# vp_mtr_cum50_cl %>%
+#   filter(status == "Accepted") %>%
+#   group_by(year, season, odim_code, day_night) %>%
+#   summarise(total_prop = sum(prop)) %>%
+#   mutate(season_date = case_when(
+#     season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
+#     season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
+#     TRUE ~ NA_Date_)) -> sp
+
+vp_mtr_cum50_cl %>%
+  filter(status == "Accepted") %>%
+  group_by(year, season, odim_code, day_night) %>%
+  summarise(total_prop = sum(prop)) %>%
+  mutate(season_date = case_when(
+    season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
+    season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
+    TRUE ~ NA_Date_),
+    odim_code = case_when(
+      odim_code == "nlhrw" ~ "Herwijnen",
+      odim_code == "nldhl" ~ "Den Helder"
+    ),
+    day_night = case_when(
+      day_night == "daylight" ~ "Day",
+      day_night == "night" ~ "Night"
+    )) -> sp
+
+sp
+
+sp %>%
+  group_by(odim_code, day_night) %>%
+  summarise(mean_prop = mean(total_prop)) -> sp_means
+
+sp_means
+```
+
+
+
+```{r}
+# Define the moon and sun symbols using Unicode
+ggplot(sp) +
+  geom_point(aes(x = season_date, y = total_prop, color = day_night, shape = day_night, fill = day_night), size = 3) +
+  dark_theme_gray(base_size = 14) +
+  geom_hline(data = sp_means, aes(yintercept = mean_prop, color = day_night), linetype = "dashed") +
+  scale_color_manual(values = c("yellow", "white")) +
+  scale_fill_manual(values = c("yellow", "white")) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_shape_manual(values = c(24, 25)) +
+  facet_wrap(vars(odim_code)) +
+  xlab("Season") +
+  ylab("% of migration mapped") + 
+  labs(title = "Seasonal proportion of migration included in map", 
+       subtitle = "After removal of unsuitable scans",
+       color = "Day/Night", shape = "Day/Night", fill = "Day/Night") +
+  theme(plot.background = element_rect(color = "black", fill = "black", size = 6))
+
+ggsave("seasonal_props.pdf", width = 10, height = 6)
 ```
 
 
