@@ -298,7 +298,9 @@ for (i in 1:nrow(final_stacks)) {
   }))
   # stk <- terra::rast(rastfiles, lyrs = "VIR")
   rmean <- app(stk, mean)
-  file_out <- paste0("data/final_stacks/", fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
+  file_out <- paste0("data/final_stacks/", fs$daytime, "/", fs$mm, "/", 
+                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
+  if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
   
   if (fs$odim_code == "NLHRW") {
     lat <- 51.8371
@@ -344,14 +346,17 @@ save_map <- function(x) {
   fstacks <- paste0("data/final_stacks/", c("NLHRW", "NLDHL"), "_", 
                     fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], ".tif")
   fstacks <- str_replace_all(fstacks, " ", "")
-  mapfile <- paste0("data/maps/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".tif")
+  mapfile <- paste0("data/maps/", fs["daytime"], "/", fs["mm"], 
+                    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".tif")
   mapfile <- str_replace_all(mapfile, " ", "")
+  if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
+  
   if (fs["mm"] == "weighted") {
     fsmm <- "weighted_pixels"
   } else {
     fsmm <- fs["mm"]
   }
-  mapfile_plot <- paste0("data/maps_plots/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
+  mapfile_plot <- paste0("data/maps_plots_borderless_transparent/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
                          fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, ".png")
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
   
@@ -397,19 +402,20 @@ save_map <- function(x) {
     geom_tile(aes(x = x, y = y, fill = mean)) +
     scale_fill_viridis_c(limits = zlim, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
     geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
-    geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
-    geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
+    #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
+    #geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
     geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
     # geom_sf(data = radar_buf, fill = "NA", color = alpha("#ffffff", 0.5), linewidth = .3) +
     coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
-    ggtitle(title, subtitle) +
-    # ggtitle(title) +
+    # ggtitle(title, subtitle) +
+    ggtitle(title) +
     dark_theme_minimal() +
     theme(axis.title.x = element_blank(),
           axis.title.y = element_blank(),
           plot.title = element_text(size = 14),
           plot.subtitle = element_text(size = 10),
-          plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
+          #plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
+          plot.background = element_rect(color = "NA", fill = "NA"),
           legend.position = c(1.02, 0.66),
           plot.margin = unit(c(1,1,1,1), "cm")) -> pl1
   
