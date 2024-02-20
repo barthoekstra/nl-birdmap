@@ -220,6 +220,8 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_ma
       VIR_summed <- colSums(as.matrix(mVIR[1:j, ]) * as.matrix(mCPS[1:j, ])) / colSums(as.matrix(mCPS[1:j, ]))
     } else if (mean_method == "weighted_scans") {
       VIR_summed <- colSums(sweep(as.matrix(mVIR[1:j, ]), MARGIN = 1, props[1:j], `*`)) / sum(props[1:j])
+    } else if (mean_method == "none") {
+      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]))
     }
     rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed)
   }
@@ -247,7 +249,7 @@ g <- expand.grid(year_season = unique(vp_mtr_cum50_cl$year_season),
 
 generate_stacks <- function(year_season, day_night, odim_code,
                             th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted", "weighted_scans"),
+                            mm = c("pixels", "scans", "weighted", "weighted_scans", "none"),
                             overwrite = FALSE) {
   
   vp_mtr_cum50_cl %>%
