@@ -350,14 +350,14 @@ for (i in 1:nrow(final_stacks)) {
 final_stacks <- expand.grid(season = c("spring", "autumn"),
                             daytime = c("day", "night"),
                             th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted_scans", "weighted"),
+                            mm = c("pixels", "scans", "weighted_scans", "weighted", "none"),
                             zmax = c(500, 600, 700, 800, 900, 1000, 1500, 2000))
 
 fstacks <- asplit(final_stacks, 1)
   
 save_map <- function(x) {
   fs <- x
-  fstacks <- paste0("data/final_stacks/", c("NLHRW", "NLDHL"), "_", 
+  fstacks <- paste0("data/final_stacks/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_", 
                     fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], ".tif")
   fstacks <- str_replace_all(fstacks, " ", "")
   mapfile <- paste0("data/maps/", fs["daytime"], "/", fs["mm"], 
@@ -391,6 +391,37 @@ save_map <- function(x) {
   m <- mosaic(sprc(r1_resampled, r2_resampled), fun = max)
   writeRaster(m, mapfile, overwrite = TRUE)
   
+  # @TODO: I can imagine there is a difference between calculating the centerpoint of a raster
+  # based on the raster's extent vs. calculating it based on the radar's location. Might fix
+  # in the future, but cannot be pressing.
+  d1 <- init(r1, fun = NA_real_)
+  d2 <- init(r2, fun = NA_real_)
+  
+  center_d1_x <- mean(c(ext(d1)$xmin, ext(d1)$xmax))
+  center_d1_y <- mean(c(ext(d1)$ymin, ext(d1)$ymax))
+  
+  center_d2_x <- mean(c(ext(d2)$xmin, ext(d2)$xmax))
+  center_d2_y <- mean(c(ext(d2)$ymin, ext(d2)$ymax))
+  
+  center_d1 <- cellFromXY(d1, cbind(center_d1_x, center_d1_y))
+  center_d2 <- cellFromXY(d2, cbind(center_d2_x, center_d2_y))
+  
+  d1[center_d1] <- 0
+  d2[center_d2] <- 0
+  
+  p <- 2
+  d1_dist <- 1/((distance(d1) + 0.00000001)^p)
+  d2_dist <- 1/((distance(d2) + 0.00000001)^p)
+  
+  d1_resampled <- resample(d1_dist, rn)
+  d2_resampled <- resample(d2_dist, rn)
+  
+  rw1 <- r1_resampled * d1_resampled
+  rw2 <- r2_resampled * d2_resampled
+  
+  m <- mosaic(sprc(rw1, rw2), fun = sum) / 
+    mosaic(sprc(d1_resampled, d2_resampled), fun = sum)
+  
   data <- raster::as.data.frame(m, xy = TRUE)
   
   c <- crs(m)
@@ -413,7 +444,7 @@ save_map <- function(x) {
   subtitle <- paste0("Noise threshold: ", fs["th"], " / Stacking method: ", fsmm)
   
   ggplot(data) +
-    geom_tile(aes(x = x, y = y, fill = mean)) +
+    geom_tile(aes(x = x, y = y, fill = vir_mean)) +
     scale_fill_viridis_c(limits = zlim, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
     geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
     #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
