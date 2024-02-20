@@ -281,16 +281,20 @@ final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
                             season = c("spring", "autumn"),
                             daytime = c("day", "night"),
                             th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted_scans", "weighted"))
+                            mm = c("pixels", "scans", "weighted_scans", "weighted", "none"))
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
-  # rastfiles <- Sys.glob(paste0("data/stacks/", fs$odim_code, "_*_", fs$season, "_", fs$daytime, ".tif"))
+  
   rastfiles <- Sys.glob(
     paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
   )
-  # Store every 1st layer
-  # layer_ids <- seq(from = 1, by = 10, length.out = length(rastfiles))
+  
+  if (fs$mm == "none") {
+    names_layers <- names(terra::rast(rastfiles))
+    names_layers <- names_layers[!names_layers %in% c("css", "VIR", "VIR_log10", "VIR_log", "VIR_sqrt")]
+    n_layers <- length(names_layers)
+  }
   
   stk <- terra::rast(lapply(rastfiles, function(x) {
     tryCatch(terra::rast(x, lyrs = "VIR"), 
@@ -298,8 +302,16 @@ for (i in 1:nrow(final_stacks)) {
                print(err)
              })
   }))
-  # stk <- terra::rast(rastfiles, lyrs = "VIR")
-  rmean <- app(stk, mean)
+  
+  if (fs$mm != "none") {
+    rmean <- app(stk, mean) 
+  } else {
+    layer_mean <- function(i) sum(i) / n_layers
+    rmean <- app(stk, layer_mean)
+  }
+  
+  names(rmean) <- "vir_mean"
+  
   file_out <- paste0("data/final_stacks/", fs$daytime, "/", fs$mm, "/", 
                      fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
