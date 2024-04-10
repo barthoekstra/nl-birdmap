@@ -10,11 +10,20 @@ library(tidyverse)
 library(bioRad)
 library(suncalc)
 library(terra)
+library(tidyterra)
 library(raster)
 library(sf)
 library(stars)
 library(parallel)
 library(ggdark)
+library(ggblend)
+library(spatialEco)
+library(fields)
+library(ggnewscale)
+library(colorspace)
+library(ggspatial)
+library(ggpattern)
+options(ggpattern_use_R4.1_masks = FALSE)
 ```
 
 # Download polar volume data from peak nights
@@ -410,6 +419,9 @@ fstacks <- asplit(final_stacks, 1)
   
 save_map <- function(x, overwrite = FALSE) {
   fs <- x
+  
+  if (fs["mm"] == "none" & fs["sp"] == "seasons_standardized") return("skipped")
+  
   fstacks <- paste0("data/final_stacks/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_", 
                     fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["sp"], ".tif")
   fstacks <- str_replace_all(fstacks, " ", "")
@@ -426,9 +438,12 @@ save_map <- function(x, overwrite = FALSE) {
   } else {
     fsmm <- fs["mm"]
   }
-  mapfile_plot <- paste0("data/maps_plots_borderless_transparent/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
+  mapfile_plot <- paste0("data/maps_plots_borderless_transparent/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_",
                          fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".png")
+  # mapfile_plot <- paste0("data/maps_plots_borderless_transparent_temp/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
+  #                        fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".pdf")
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
+  if (!dir.exists(dirname(mapfile_plot))) dir.create(dirname(mapfile_plot), recursive = TRUE)
   
   r1 <- rast(fstacks[1]) %>% project("EPSG:28992")
   r2 <- rast(fstacks[2]) %>% project("EPSG:28992")
@@ -469,8 +484,8 @@ save_map <- function(x, overwrite = FALSE) {
   subtitle <- paste0("Noise threshold: ", fs["th"], " / Stacking method: ", fsmm)
   
   ggplot(data) +
-    geom_tile(aes(x = x, y = y, fill = vir_mean)) +
-    scale_fill_viridis_c(limits = zlim, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
+    geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
+    scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
     geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
     #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
     #geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
@@ -484,19 +499,22 @@ save_map <- function(x, overwrite = FALSE) {
           axis.title.y = element_blank(),
           plot.title = element_text(size = 14),
           plot.subtitle = element_text(size = 10),
-          axis.text.x = element_text(color = "white"),
-          axis.text.y = element_text(color = "white"),
-          panel.grid.major = element_line(color = "white"),
+          # axis.text.x = element_text(color = "white"),
+          # axis.text.y = element_text(color = "white"),
+          axis.text = element_text(color = alpha("white", 0.25)),
+          panel.grid.major = element_line(color = alpha("white", 0.1)),
           panel.grid.minor = element_line(color = "white"),
+          plot.title.position = "plot",
           #plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
-          plot.background = element_rect(color = "NA", fill = "NA"),
+          # plot.background = element_rect(color = "NA", fill = "NA"),
           legend.position = c(1.02, 0.66),
           plot.margin = unit(c(1,1,1,1), "cm")) -> pl1
   
   ggsave(mapfile_plot, plot = pl1, width = 5, height = 6)
 }
 
-processing <- mclapply(fstacks, overwrite = TRUE, save_map, mc.cores = 10, mc.preschedule = FALSE)
+processing <- mclapply(fstacks, save_map, overwrite = TRUE, mc.cores = 10, mc.preschedule = FALSE)
+# processing <- lapply(fstacks, save_map, overwrite = TRUE)
 
 saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
@@ -638,5 +656,1298 @@ ggplot(sp) +
 
 ggsave("seasonal_props.pdf", width = 10, height = 6)
 ```
+
+# Clutter map creation
+
+```{r}
+vp_mtr %>%
+  group_by(year_season, odim_code, day_night) %>%
+  filter(top >= tail(top, 25)[1]) %>%
+  identity() -> vp_mtr_low
+
+scantimes <- as_datetime(unlist(apply(vp_mtr_low, MARGIN = 1, FUN = calculate_scantime, simplify = FALSE)))
+
+vp_mtr_low$moment <- scantimes
+vp_mtr_low
+```
+
+```{r}
+dts <- dplyr::select(vp_mtr_low, odim_code, moment)
+
+dts_hrw <- dts %>%
+  filter(odim_code == "nlhrw") %>%
+  pull(moment)
+
+filepaths_hrw <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5")
+filepaths_hrw_alt <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5")
+paths <- list(paste0("mc cp ", filepaths_hrw, " ."), paste0("mc cp ", filepaths_hrw_alt, " ."))
+
+write_lines(unlist(paths), file = "data/pvol_clutter/hrw_files.sh", )
+
+dts_dhl <- dts %>%
+  filter(odim_code == "nldhl") %>%
+  pull(moment)
+
+filepaths_dhl <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5")
+filepaths_dhl_alt <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5")
+paths <- list(paste0("mc cp ", filepaths_dhl, " ."), paste0("mc cp ", filepaths_dhl_alt, " ."))
+
+write_lines(unlist(paths), file = "data/pvol_clutter/dhl_files.sh", )
+```
+
+```{r}
+accepted_files <- list.files("data/rbc_png_clutter/full/Accepted/")
+rejected_files <- list.files("data/rbc_png_clutter/full/Rejected/")
+
+rbc_file_from_png <- function(file, azim_method = "full") {
+  f <- basename(file)
+  ss <- str_split(f, "_")[[1]][1:4]
+  radar <- str_to_lower(ss[1])
+  moment <- parse_date_time(ss[3], "YmdHM")
+  fp <- paste0("data/rbc_clutter/", str_c(ss, collapse = "_"), "_", azim_method, ".RDS")
+  return(list("odim_code" = radar, "moment" = moment, "rbcfile" = fp))
+}
+
+accepted <- bind_rows(lapply(accepted_files, rbc_file_from_png)) %>% mutate(status = "Accepted")
+rejected <- bind_rows(lapply(rejected_files, rbc_file_from_png)) %>% mutate(status = "Rejected")
+
+classified_moments <- bind_rows(accepted, rejected)
+
+vp_mtr_low %>%
+  left_join(classified_moments, by = join_by(odim_code, moment)) %>%
+  mutate(status = replace_na(status, "Rejected")) %>%
+  identity() -> vp_mtr_low_cl
+```
+
+```{r}
+stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_max = 2500, mean_method = "pixels", overwrite = FALSE) {
+  # See if files exist already
+  daytime <- if_else(daytime == "night", "night", "day")
+  filepath <- paste0("data/stacks_clutter/",
+                     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS")
+  rasterpath <- paste0("data/stacks_clutter/",
+                       str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif")
+
+  if (file.exists(filepath) && file.exists(rasterpath)) {
+    if (!overwrite) {
+      return("exists")
+    }
+  }
+
+  r <- rbcs[[1]]
+  rp <- r
+  cs <- rbcs[[1]]$data@data$VIR
+  cs <- cs * 0
+  cp <- cs
+  zeros <- cs
+
+  VIRs <- list()
+  css <- list()
+  cps <- list()
+
+  for(i in seq_along(rbcs)) {
+    VIR <- rbcs[[i]]$data@data$VIR
+    RAIN <- rbcs[[i]]$data@data$rain
+    VIR[which(VIR > threshold_max)] <- threshold_max
+    # VIR[which(VIR == 0)] <- NA
+    VIR[which(RAIN > 0)] <- NA
+    cs <- cs + 1 - (is.na(VIR) * 1)
+    cp <- (1 * props[i]) - (is.na(VIR) * 1 * props[i])
+    VIRs <- append(VIRs, list(VIR))
+    css <- append(css, list(cs))
+    cps <- append(cps, list(cp))
+  }
+
+  mVIR <- do.call(rbind, VIRs)
+  mCSS <- do.call(rbind, css)
+  mCPS <- do.call(rbind, cps)
+
+  mVIR[is.na(mVIR)] <- 0
+  VIR_summed <- mVIR[1, ] * 0
+
+  for (j in seq_along(VIRs)) {
+    if (j == 1) {
+      VIR_summed <- as.vector(as.matrix(mVIR[1:j, ]))
+      rp$data@data[paste0("VIR_", j)] <- VIR_summed
+      next
+    }
+    
+    if (mean_method == "scans") {
+      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / j
+    } else if (mean_method == "pixels") {
+      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / css[[j]]
+    } else if (mean_method == "weighted") {
+      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]) * as.matrix(mCPS[1:j, ])) / colSums(as.matrix(mCPS[1:j, ]))
+    } else if (mean_method == "weighted_scans") {
+      VIR_summed <- colSums(sweep(as.matrix(mVIR[1:j, ]), MARGIN = 1, props[1:j], `*`)) / sum(props[1:j])
+    } else if (mean_method == "none") {
+      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]))
+    }
+    rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed)
+  }
+
+  remove_variables <- c("VID", "R", "overlap", "eta_sum", "eta_sum_expected", "rain")
+  for (var in remove_variables) {
+    rp$data@data[var] <- NULL
+  }
+  rp$data$css <- as.vector(css[[length(css)]])
+  rp$data$VIR <- as.vector(as.matrix(rp$data@data[paste0("VIR_", length(VIRs))]))
+
+  rp <- calculate_param(rp, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
+  saveRDS(rp, filepath)
+  rrast <- terra::rast(rp$data)
+  fixedlayers <- c("VIR", "css", "cps", "VIR_log10", "VIR_log", "VIR_sqrt")
+  layernames <- names(rrast)
+  layerorder <- c(which(layernames %in% fixedlayers), which(!layernames %in% fixedlayers))
+  rrast <- subset(rrast, layerorder)
+  terra::writeRaster(rrast, rasterpath, overwrite = overwrite)
+}
+
+g <- expand.grid(year_season = unique(vp_mtr_low_cl$year_season),
+                 day_night = unique(vp_mtr_low_cl$day_night),
+                 odim_code = unique(vp_mtr_low_cl$odim_code))
+
+generate_stacks <- function(year_season, day_night, odim_code,
+                            th = c(2500),
+                            mm = c("scans", "none"),
+                            overwrite = FALSE) {
+  
+  vp_mtr_low_cl %>%
+    filter(status == "Accepted", year_season == !!year_season, day_night == !!day_night, odim_code == !!odim_code) %>%
+    drop_na() %>%
+    arrange(top) %>%
+    dplyr::select(rbcfile, prop) -> files
+  
+  if (nrow(files) == 0) return("files do not exist")
+  
+  gr <- expand.grid(th = th, mm = mm, stringsAsFactors = FALSE)
+  gr <- asplit(gr, 1)
+  
+  rbcs <- lapply(files$rbcfile, readRDS)
+  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, props = files$prop, year_season = year_season, daytime = day_night, odimcode = odim_code, 
+                                     threshold_max = as.numeric(x["th"]), mean_method = x["mm"], overwrite = overwrite)})
+}
+
+processing_stacking <- mcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, 
+                                odim_code = g$odim_code, overwrite = TRUE, mc.cores = 6, mc.preschedule = TRUE)
+processing_stacking <- mapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, 
+                              odim_code = g$odim_code, overwrite = FALSE)
+saveRDS(processing_stacking, paste0("data/logs/processing_stacking_clutter_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+
+# generate_stacks(g$year_season[[1]], day_night = g$day_night[[1]], odim_code = g$odim_code[[1]], overwrite = TRUE)
+```
+
+```{r}
+final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
+                            season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            th = c(2500),
+                            mm = c("scans", "none"))
+
+for (i in 1:nrow(final_stacks)) {
+  fs <- final_stacks[i, ]
+  
+  rastfiles <- Sys.glob(
+    paste0("data/stacks_clutter/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", 
+           fs$mm, "_", fs$daytime, ".tif")
+  )
+  
+  if (fs$mm == "none") {
+    names_layers <- names(terra::rast(rastfiles))
+    names_layers <- names_layers[!names_layers %in% c("css", "VIR", "VIR_log10", "VIR_log", "VIR_sqrt")]
+    n_layers <- length(names_layers)
+  }
+  
+  stk <- terra::rast(lapply(rastfiles, function(x) {
+    tryCatch(terra::rast(x, lyrs = "VIR"), 
+             error = function(err) {
+               print(err)
+             })
+  }))
+  
+  if (fs$mm != "none") {
+    rmean <- app(stk, mean)
+  } else {
+    layer_mean <- function(i) sum(i) / n_layers
+    rmean <- app(stk, layer_mean) 
+  }
+  
+  names(rmean) <- "vir_mean"
+  
+  file_out <- paste0("data/final_stacks_clutter/", fs$daytime, "/", fs$mm, "/", 
+                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime,".tif")
+  if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
+  
+  if (fs$odim_code == "NLHRW") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (fs$odim_code == "NLDHL") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+  
+  circle_radius <- 100000  # 100 km in meters
+
+  # Create a simple features (sf) point object
+  center_point <- st_sfc(st_point(c(lon, lat)))
+  
+  # Buffer the point to create a circular polygon
+  st_crs(center_point) <- 4326
+  center_point <- st_transform(center_point, crs = st_crs(rmean))
+  circle <- st_buffer(center_point, dist = circle_radius)
+  # mask(x = raster_data, mask = circle)  
+  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(rmean, values = NA_real_), nx = 640, ny = 640))
+  masked_raster[masked_raster == 0] <- NA
+  
+  raster_masked <- terra::mask(rmean, as(masked_raster, "SpatRaster"))
+  
+  writeRaster(raster_masked, file_out, overwrite = TRUE)
+}
+```
+
+```{r}
+final_stacks <- expand.grid(season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            th = c(2500),
+                            mm = c("scans", "none"),
+                            zmax = c(2000))
+
+fstacks <- asplit(final_stacks, 1)
+  
+save_map <- function(x, overwrite = FALSE) {
+  fs <- x
+  
+  fstacks <- paste0("data/final_stacks_clutter/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_", 
+                    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], ".tif")
+  fstacks <- str_replace_all(fstacks, " ", "")
+  mapfile <- paste0("data/maps_clutter/", fs["daytime"], "/", fs["mm"], 
+                    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".tif")
+  mapfile <- str_replace_all(mapfile, " ", "")
+  
+  if(file.exists(mapfile) & !overwrite) return(mapfile)
+  
+  if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
+  
+  mapfile_plot <- paste0("data/maps_plots_borderless_transparent_clutter/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, ".png")
+  # mapfile_plot <- paste0("data/maps_plots_borderless_transparent_temp/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
+  #                        fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".pdf")
+  mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
+  if (!dir.exists(dirname(mapfile_plot))) dir.create(dirname(mapfile_plot), recursive = TRUE)
+  
+  r1 <- rast(fstacks[1]) %>% project("EPSG:28992")
+  r2 <- rast(fstacks[2]) %>% project("EPSG:28992")
+  
+  bbox1 <- ext(r1)
+  bbox2 <- ext(r2)
+  
+  combined_bbox <- c(min(bbox1$xmin, bbox2$xmin), max(bbox1$xmax, bbox2$xmax), 
+                     min(bbox1$ymin, bbox2$ymin), max(bbox1$ymax, bbox2$ymax))
+  
+  rn <- rast(ext = combined_bbox, crs = "EPSG:28992")
+  res(rn) <- 500
+  
+  r1_resampled <- resample(r1, rn)
+  r2_resampled <- resample(r2, rn)
+  
+  m <- mosaic(sprc(r1_resampled, r2_resampled), fun = mean)
+  writeRaster(m, mapfile, overwrite = TRUE)
+  
+  data <- raster::as.data.frame(m, xy = TRUE)
+  
+  c <- crs(m)
+  nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
+  nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+  nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+  
+  radar_bbox <- st_bbox(radar_buf)
+  
+  padding <- 500
+  # xlim <- c(min(data$x), max(data$x))
+  xlim <- c(radar_bbox$xmin - padding, radar_bbox$xmax + padding)
+  # ylim <- c(min(data$y), max(data$y))
+  ylim <- c(radar_bbox$ymin - padding, radar_bbox$ymax + padding)
+  zlim <- c(0, quantile(data$mean, 0.95))
+  zlim <- c(0, as.numeric(fs["zmax"]))
+  season <- if_else(fs["daytime"] == "night", "by Night", "by Day")
+  title <- paste0(str_to_sentence(fs["season"]), " ", season)
+  subtitle <- paste0("Noise threshold: ", fs["th"], " / Stacking method: ", fsmm)
+  
+  ggplot(data) +
+    geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
+    scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
+    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+    #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
+    #geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
+    geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
+    # geom_sf(data = radar_buf, fill = "NA", color = alpha("#ffffff", 0.5), linewidth = .3) +
+    coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
+    # ggtitle(title, subtitle) +
+    ggtitle(title) +
+    dark_theme_minimal() +
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.title = element_text(size = 14),
+          plot.subtitle = element_text(size = 10),
+          # axis.text.x = element_text(color = "white"),
+          # axis.text.y = element_text(color = "white"),
+          axis.text = element_text(color = alpha("white", 0.25)),
+          panel.grid.major = element_line(color = alpha("white", 0.1)),
+          panel.grid.minor = element_line(color = "white"),
+          plot.title.position = "plot",
+          #plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
+          # plot.background = element_rect(color = "NA", fill = "NA"),
+          legend.position = c(1.02, 0.66),
+          plot.margin = unit(c(1,1,1,1), "cm")) -> pl1
+  
+  ggsave(mapfile_plot, plot = pl1, width = 5, height = 6)
+}
+
+# processing <- mclapply(fstacks, save_map, overwrite = TRUE, mc.cores = 10, mc.preschedule = FALSE)
+processing <- lapply(fstacks, save_map, overwrite = TRUE)
+
+saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+```
+
+# Clutter removal
+
+```{r}
+clutter_maps <- expand.grid(season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            thresh = c(100, 150, 200, 250, 300),
+                            s = c(1, 2, 3, 4, 5, 6, 7),
+                            n = c(13, 17, 21, 25, 29),
+                            stringsAsFactors = FALSE)
+
+create_final_map_set <- function(map_grid, buffer_patches = NULL,
+                                 custom_clutter = NULL) {
+  cm <- asplit(map_grid, 1)
+
+  for (m in cm) {
+    r <- rast(paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
+                     "_thresh_2500_avg_scans_seasons_nonstandardized.tif"))
+    if (is.null(custom_clutter)) {
+      rc <- rast(paste0("data/maps_clutter/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
+                        "_thresh_2500_avg_scans.tif"))
+      # Create denoised clutter map
+      rc[rc < t] <- NA
+      rc[rc >= t] <- 1
+    } else {
+      if (is.logical(custom_clutter)) {
+        rc <- rast(paste0("data/final_maps/custom_clutter/NL_", m["season"], "_", m["daytime"], ".tif"))
+      } else if (is.character(custom_clutter)) {
+        rc <- rast(custom_clutter)
+      }
+    }
+    
+    t <- as.numeric(m["thresh"])
+    s <- as.numeric(m["s"])
+    n <- as.numeric(m["n"])
+    
+    # Prepare GIS data for plots
+    c <- crs(r)
+    nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
+    nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+    nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+    radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+    
+    prc <- patches(rc)
+    zrc <- zonal(cellSize(prc, unit = "km"), prc, sum, as.raster = TRUE)
+    src <- ifel(zrc < 2, NA, prc)
+    rcn <- rc
+    rcn[is.na(src)] <-NA
+    
+    if (!is.null(buffer_patches)) {
+      rcn <- buffer(rcn, width = buffer_patches)
+      rcn <- rcn * 1
+      rcn[rcn == 0] <- NA
+    }
+    
+    cluts <- c(rc, rcn)
+    cls <- as.data.frame(cluts, xy = TRUE)
+    colnames(cls) <- c("x", "y", "clut_orig", "clut_denoised")
+    cls %>% pivot_longer(cols = -c(x, y), names_to = "clut_type") %>% drop_na() -> cls
+    ggplot() +
+      geom_raster(aes(x = x, y = y, fill = clut_type, group = clut_type), data = cls) +
+      facet_wrap(~clut_type) +
+      dark_theme_minimal() +
+      geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+      geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
+      geom_sf(data = radar_buf, fill = "NA", color = "white", linewidth = .3) +
+      theme(axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            plot.title = element_text(size = 14),
+            plot.subtitle = element_text(size = 10),
+            axis.text = element_text(color = alpha("white", 0.25)),
+            panel.grid.major = element_line(color = alpha("white", 0.1)),
+            panel.grid.minor = element_line(color = "white"),
+            plot.title.position = "plot",
+            plot.margin = unit(c(1,1,1,1), "cm")) -> pclut
+    
+    # Save plot
+    fp_clutplot <- paste0("data/final_maps/plots/NL_", m["season"], "_", m["daytime"], 
+                          "_thresh_", t, "_s_", s, "_n_", n, "_clut.png")
+    ggsave(pclut, width = 7, height = 4, filename = fp_clutplot)
+    
+    # Save clutter map
+    fp_clut <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
+                      "_thresh_", t, "_s_", s, "_n_", n, "_clutter.tif")
+    writeRaster(rcn, fp_clut, overwrite = TRUE)
+    
+    # Create final bird map
+    rn <- r
+    rn[rcn == 1] <- NA
+    
+    # Blur
+    suppressMessages({
+      b <- raster.gaussian.smooth(rn, s=s, n=n, na.rm = TRUE, type = "mean")
+    })
+    
+    # Remove area introduced by blur
+    b[is.na(r)] <- NA
+    
+    # Save bird map
+    fp_bird <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
+                      "_thresh_", t, "_s_", s, "_n_", n, ".tif")
+    writeRaster(b, fp_bird, overwrite = TRUE)
+    
+    # Plots for quick overviews
+    if (m["season"] == "autumn") {
+      zlims <- c(0, 800)
+    } else if (m["season"] == "spring") {
+      zlims <- c(0, 400)
+    }
+    
+    data <- as.data.frame(b, xy = TRUE)
+    clut <- as.data.frame(rcn, xy = TRUE)
+    
+    ggplot() +
+      geom_raster(aes(x = x, y = y, fill = focal_mean), data = data) +
+      scale_fill_viridis_c(limits = zlims, oob = scales::squish, option = "inferno", na.value = 0, name = "Mean VIR") +
+      new_scale_fill() +
+      geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.4)) +
+      geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+      geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
+      geom_sf(data = radar_buf, fill = "NA", color = "white", linewidth = .3) +
+      dark_theme_minimal() +
+      labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+      theme(axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            plot.title = element_text(size = 14),
+            plot.subtitle = element_text(size = 10),
+            # axis.text.x = element_text(color = "white"),
+            # axis.text.y = element_text(color = "white"),
+            axis.text = element_text(color = alpha("white", 0.25)),
+            panel.grid.major = element_line(color = alpha("white", 0.1)),
+            panel.grid.minor = element_line(color = "white"),
+            plot.title.position = "plot",
+            plot.margin = unit(c(1,1,1,1), "cm"))-> p
+    
+    # Save plot
+    fp_plot <- paste0("data/final_maps/plots/NL_", m["season"], "_", m["daytime"], 
+                      "_thresh_", t, "_s_", s, "_n_", n, ".png")
+    ggsave(p, filename = fp_plot)
+    
+    # Log
+    print(m)
+  }
+}
+
+create_final_map_set(clutter_maps)
+
+# mclapply(clutter_maps, create_final_map_set, mc.cores = 14, mc.preschedule = TRUE)
+```
+
+After a visual inspection of the plots above, we have settled on using clutter maps with a VIR threshold of 250
+
+```{r}
+# final_clutter_maps <- list.files("data/final_maps", pattern = "*thresh_250_s_4_n_21_clutter.tif", full.names = TRUE)
+
+clutter_maps <- expand.grid(season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            thresh = c(250),
+                            s = c(4),
+                            n = c(25),
+                            stringsAsFactors = FALSE)
+
+clutter_maps_files <- list.files("data/final_maps/custom_clutter", full.names = TRUE)
+
+cl <- rast(clutter_maps_files)
+cl <- app(cl, sum, na.rm = TRUE)
+cl[cl > 1] <- 1
+writeRaster(cl, "data/final_maps/custom_clutter/NL_combined.tif", overwrite = TRUE)
+
+# create_final_map_set(clutter_maps, buffer_patches = 500, 
+#                      custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
+# mclapply(clutter_maps, create_final_map_set, buffer_patches = 250, custom_clutter = TRUE, 
+         # mc.cores = 4, mc.preschedule = TRUE)
+create_final_map_set(clutter_maps, buffer_patches = NULL, custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
+```
+
+# Beam blockage
+
+After calculating beam blockage using "beam-blockage/beamblockage.ipynb", two .csv's storing x,y,z and CBB (cumulative beam blockage) values are created for both HRW and DHL radars. We will turn these in raster files which can be used in this project.
+
+```{r}
+hrw_bb <- read_csv("data/beam_blockage/hrw.csv", col_types = "dddddd") %>% 
+  dplyr::select(x, y, CBB)
+
+dhl_bb <- read_csv("data/beam_blockage/dhl.csv", col_types = "dddddd") %>%
+  dplyr::select(x, y, CBB)
+
+exrast_hrw <- rast("data/final_stacks/night/scans/NLHRW_autumn_thresh_2500_avg_scans_night_seasons_nonstandardized.tif")
+exrast_dhl <- rast("data/final_stacks/night/scans/NLDHL_autumn_thresh_2500_avg_scans_night_seasons_nonstandardized.tif")
+
+v_hrw <- vect(hrw_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_hrw)
+v_dhl <- vect(dhl_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_dhl)
+
+cbb_hrw <- rasterize(v_hrw, exrast_hrw, field = "CBB", fun = max) %>%
+  focal(w = c(5, 5), fun = "max", na.rm = TRUE)
+cbb_dhl <- rasterize(v_dhl, exrast_dhl, field = "CBB", fun = max) %>%
+  focal(w = c(5, 5), fun = "max", na.rm = TRUE)
+writeRaster(cbb_hrw, "data/beam_blockage/hrw.tif", overwrite = TRUE)
+writeRaster(cbb_dhl, "data/beam_blockage/dhl.tif", overwrite = TRUE)
+
+plot(cbb_hrw)
+plot(cbb_dhl)
+
+clip_to_radius <- function(raster_full, odim_code, radius) {
+  if (odim_code == "NLHRW") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (odim_code == "NLDHL") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+  
+  circle_radius <- radius  # 100 km in meters
+
+  # Create a simple features (sf) point object
+  center_point <- st_sfc(st_point(c(lon, lat)))
+  
+  # Buffer the point to create a circular polygon
+  st_crs(center_point) <- 4326
+  center_point <- st_transform(center_point, crs = st_crs(raster_full))
+  circle <- st_buffer(center_point, dist = circle_radius)
+  # mask(x = raster_data, mask = circle)  
+  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(raster_full, values = NA_real_), nx = 640, ny = 640))
+  masked_raster[masked_raster == 0] <- NA
+  
+  raster_masked <- terra::mask(raster_full, as(masked_raster, "SpatRaster"))
+  raster_masked
+}
+
+r1 <- cbb_hrw %>% clip_to_radius("NLHRW", 100000) %>% project("EPSG:28992")
+r2 <- cbb_dhl %>% clip_to_radius("NLDHL", 100000) %>% project("EPSG:28992")
+
+# r1[r1 == 0] <- NA
+# r2[r2 == 0] <- NA
+
+bbox1 <- ext(r1)
+bbox2 <- ext(r2)
+
+combined_bbox <- c(min(bbox1$xmin, bbox2$xmin), max(bbox1$xmax, bbox2$xmax), 
+                   min(bbox1$ymin, bbox2$ymin), max(bbox1$ymax, bbox2$ymax))
+
+rn <- rast(ext = combined_bbox, crs = "EPSG:28992")
+res(rn) <- 500
+
+r1_resampled <- resample(r1, rn)
+r2_resampled <- resample(r2, rn)
+
+m <- mosaic(sprc(r1_resampled, r2_resampled), fun = "last") # DHL should be last!
+m[m == 0] <- NA
+plot(m)
+writeRaster(m, "data/beam_blockage/NL_beamblockage.tif", overwrite = TRUE)
+```
+
+
+# Final maps
+
+```{r}
+ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25.tif")
+bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25.tif")
+bad <- rast("data/final_maps/NL_autumn_day_thresh_250_s_4_n_25.tif")
+bsd <- rast("data/final_maps/NL_spring_day_thresh_250_s_4_n_25.tif")
+
+da <- ban - bsn
+db <- bad - bsd
+
+scale01 <- function(r) {
+  nx <- minmax(r)    
+  rn <- (r - nx[1,]) / (nx[2,] - nx[1,])
+  rn
+}
+
+ban_s <- scale01(ban)
+bsn_s <- scale01(bsn)
+bad_s <- scale01(bad)
+bsd_s <- scale01(bsd)
+
+da_s <- ban_s - bsn_s
+db_s <- bad_s - bsd_s
+# rcn <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_clutter.tif")
+# cbb <- rast("data/beam_blockage/NL_beamblockage.tif")
+
+c <- st_crs(ban)
+nl <- geojsonsf::geojson_sf("data/gis/Netherlands.geojson") %>% st_transform(c)
+nl_buf <- geojsonsf::geojson_sfc("data/gis/Netherlands-5km-Buffer.geojson") %>% st_transform(c)
+clut_buf <- geojsonsf::geojson_sf("data/gis/NL_Clutter-500m-Buffer.geojson") %>% st_transform(c) %>% st_as_sf()
+bb <- geojsonsf::geojson_sfc("data/gis/NL_Beamblockage.geojson") %>% st_transform(c) %>% st_as_sf()
+bb$pattern <- "stripe"
+# nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+# nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+radars <- geojsonsf::geojson_sf("data/gis/Radars.geojson") %>% st_transform(c) %>% filter(acronym != "artis")
+
+bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
+clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
+uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
+uncertainty$certainty <- "Onzeker"
+uncertainty %>% st_transform(c) %>% st_write("data/package/uncertainty.geojson", append = FALSE)
+
+nl_buf_spatvector <- vect(nl_buf)
+
+ban <- terra::mask(ban, nl_buf_spatvector)
+bsn <- terra::mask(bsn, nl_buf_spatvector)
+bad <- terra::mask(bad, nl_buf_spatvector)
+bsd <- terra::mask(bsd, nl_buf_spatvector)
+
+map_to_df <- function(map, s, d, z) {
+  as.data.frame(map, xy = TRUE) %>%
+    rename("vir_mean" = "focal_mean") %>%
+    mutate(vid_mean = vir_mean / 11,
+           season = s,
+           daytime = d,
+           zlim = z)
+}
+
+data <- mapply(map_to_df, map = list(ban, bsn, bad, bsd), 
+               s = c("autumn", "spring", "autumn", "spring"), 
+               d = c("night", "night", "day", "day"),
+               z = c(800, 800, 350, 350),
+               SIMPLIFY = FALSE) %>%
+  bind_rows()
+  
+data %>%
+  filter(daytime == "night") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, 
+                       name = "VIR (cm2/km2)") +
+  new_scale_fill() +
+  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750/11), oob = scales::squish, option = "inferno", na.value = 0, 
+                       name = "VID (vogels/km2)") +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf), 
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/night.pdf", width = 17, height = 10, device = cairo_pdf)
+
+data %>%
+  filter(daytime == "day") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  scale_fill_viridis_c(limits = c(0, 300), oob = scales::squish, option = "inferno", na.value = 0, 
+                       name = "VIR (cm2/km2)") +
+  new_scale_fill() +
+  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
+  scale_fill_viridis_c(limits = c(0, 300/11), oob = scales::squish, option = "inferno", na.value = 0, 
+                       name = "VID (vogels/km2)") +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf), 
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/day.pdf", width = 17, height = 10, device = cairo_pdf)
+
+# cmap_name <- "fusion"
+# cmap_url <- paste0("https://raw.githubusercontent.com/1313e/CMasher/master/",
+#                    "cmasher/colormaps/", cmap_name, "/", cmap_name, "_norm.txt")
+# cmtable <- read.table(cmap_url)
+# cmscale <- rgb(cmtable[,1], cmtable[,2], cmtable[,3])
+# image(volcano, col=cmscale)
+
+da %>%
+  terra::mask(nl_buf_spatvector) %>%
+  as.data.frame(xy = TRUE) %>%
+  rename("vir_mean" = "focal_mean") %>%
+  mutate(vid_mean = vir_mean / 11) %>%
+  # filter(daytime == "day") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
+  # scico::scale_fill_scico(palette = "vik", midpoint = 0) +
+  # scale_fill_gradient2(low = "red", high = "blue", mid = "white", midpoint = 0) +
+  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-400, 400), oob = scales::squish, 
+                       name = "VIR verschil (cm2/km2)") +
+  # scale_fill_gradientn(colours = rev(cmscale), name = "VIR Difference", oob = scales::squish, limits = c(-300, 300)) +
+  # new_scale_fill() +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf), 
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/diff_absolute_night.pdf", width = 10, height = 10, device = cairo_pdf)
+
+da_s %>%
+  terra::mask(nl_buf_spatvector) %>%
+  as.data.frame(xy = TRUE) %>%
+  rename("vir_mean" = "focal_mean") %>%
+  mutate(vid_mean = vir_mean / 11) %>%
+  # filter(daytime == "day") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
+                       name = "Rel. VIR verschil") +
+  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
+  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/diff_relative_night.pdf", width = 10, height = 10, device = cairo_pdf)
+
+db %>%
+  terra::mask(nl_buf_spatvector) %>%
+  as.data.frame(xy = TRUE) %>%
+  rename("vir_mean" = "focal_mean") %>%
+  mutate(vid_mean = vir_mean / 11) %>%
+  # filter(daytime == "day") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
+  # scico::scale_fill_scico(palette = "vik", midpoint = 0) +
+  # scale_fill_gradient2(low = "red", high = "blue", mid = "white", midpoint = 0) +
+  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-100, 100), oob = scales::squish, 
+                       name = "VIR verschil (cm2/km2)") +
+  # scale_fill_gradientn(colours = rev(cmscale), name = "VIR Difference", oob = scales::squish, limits = c(-300, 300)) +
+  # new_scale_fill() +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf), 
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/diff_absolute_day.pdf", width = 10, height = 10, device = cairo_pdf)
+
+db_s %>%
+  terra::mask(nl_buf_spatvector) %>%
+  as.data.frame(xy = TRUE) %>%
+  rename("vir_mean" = "focal_mean") %>%
+  mutate(vid_mean = vir_mean / 11) %>%
+  # filter(daytime == "day") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
+                       name = "Rel. VIR verschil") +
+  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
+  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/diff_relative_day.pdf", width = 10, height = 10, device = cairo_pdf)
+
+db_s %>%
+  terra::mask(nl_buf_spatvector) %>%
+  as.data.frame(xy = TRUE) %>%
+  rename("vir_mean" = "focal_mean") %>%
+  mutate(vid_mean = vir_mean / 11) %>%
+  # filter(daytime == "day") %>%
+  ggplot() +
+  # geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
+  #                      name = "Rel. VIR verschil") +
+  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
+  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.2), color = alpha("white", 0.5),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.2), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  dark_theme_minimal() +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/uncertainty_areas.pdf", width = 10, height = 10, device = cairo_pdf)
+```
+
+```{r}
+bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
+clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
+uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
+uncertainty$certainty <- "Onzeker"
+
+
+data %>%
+  filter(daytime == "night") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, name = "Mean VIR") +
+  new_scale_fill() +
+  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750/11), oob = scales::squish, option = "inferno", na.value = 0, name = "Mean VID") +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf_pattern(data = st_geometry(bb) %>% st_intersection(st_geometry(nl_buf)), 
+  #                 fill = alpha("black", 0.1), color = alpha("white", 0.1),
+  #                 pattern_density = 0.3, pattern_spacing = 0.015, pattern_fill = "black", pattern_color = NA) +
+  # geom_sf_pattern(data = st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf)), 
+  #                 fill = alpha("black", 0.1), color = alpha("white", 0.1),
+  #                 pattern_density = 0.3, pattern_spacing = 0.015, pattern_fill = "black", pattern_color = NA) +
+  geom_sf_pattern(aes(pattern = certainty), 
+                  data = uncertainty %>% st_intersection(nl_buf), 
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  annotation_scale() +
+  dark_theme_minimal(base_family = "Helvetica", base_size = 16) +
+  facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.05)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"))
+
+options(ggpattern_use_R4.1_masks = TRUE)
+ggsave("night.pdf", width = 17, height = 10, device = cairo_pdf)
+```
+
+
+
+
+```{r}
+clutter_maps <- expand.grid(season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            thresh = c(50, 100, 150, 200, 250, 300),
+                            s = c(1, 2, 3, 4, 5),
+                            n = c(3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31))
+
+clutter_maps$n <- as.numeric(clutter_maps$n)
+cm <- asplit(clutter_maps, 1)
+
+r <- rast("data/maps/night/scans/NL_autumn_night_thresh_2500_avg_scans_seasons_nonstandardized.tif")
+rc <- rast("data/maps_clutter/night/scans/NL_autumn_night_thresh_2500_avg_scans.tif")
+rc <- rast("data/final_maps/custom_clutter/NL_combined.tif")
+
+# rc[rc < 250] <- NA
+# rc[rc >= 250] <- 1
+prc <- patches(rc)
+zrc <- zonal(cellSize(prc, unit = "km"), prc, sum, as.raster = TRUE)
+src <- ifel(zrc < 2, NA, prc)
+rcn <- rc
+rcn[is.na(src)] <-NA
+plot(c(rc, rcn))
+
+rn <- r
+rn[rcn == 1] <- NA
+suppressMessages({plot(rn, col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=1, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=1.5, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=2, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=2.5, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=3, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=3.5, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+##### THE ONE BELOW #####
+suppressMessages({plot(raster.gaussian.smooth(rn, s=4, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+##### THE ONE ABOVE #####
+suppressMessages({plot(raster.gaussian.smooth(rn, s=4.5, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=5, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=6, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=7, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=8, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=9, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+suppressMessages({plot(raster.gaussian.smooth(rn, s=10, n=21, na.rm = TRUE, type = "mean"), col = map.pal("viridis"))})
+
+
+a <- raster.gaussian.smooth(rn, s=3, n=21, na.rm = TRUE, type = "mean")
+# a[rcn == 1] <- NA
+plot(rn)
+plot(a)
+
+rm <- r
+a[is.na(rm)] <- NA
+plot(a)
+
+# xy <- data.frame(xyFromCell(a, 1:ncell(a)))
+# v <- values(a)
+# i <- !is.na(v)
+# xy <- xy[i, ]
+# v <- v[i]
+# idx <- sample(nrow(xy), 10000)
+# 
+# # tps <- fields::Tps(xy[idx, ], v[idx], m = 2)
+# tps <- fields::fastTps(xy[idx, ], v[idx], m = 3, aRange = 10)
+# 
+# p <- rast(a)
+# p <- interpolate(p, tps)
+# # p <- mask(a, p)
+# plot(p)
+
+# 
+# rnn_df <- as.data.frame(rn, xy = TRUE) %>% drop_na() %>% slice_sample(n = 5000)
+# rcn_df <- as.data.frame(rcn, xy = TRUE) %>% slice_sample(n = 100000)
+# coordinates(rnn_df) <- ~ x+y
+# coordinates(rcn_df) <- ~ x+y
+# 
+# k <- autoKrige(vir_mean ~ 1, input_data = rnn, new_data = rcn_df)
+
+# rn <- r
+# rn[rc >= 250] <- NA
+# variogram <- autofitVariogram(vir_mean ~ 1, rnn, verbose = TRUE)
+# plot(variogram)
+
+i <- 1
+for (m in cm) {
+  map_birds <- paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
+                      "_thresh_2500_avg_scans_seasons_nonstandardized.tif")
+  map_clutt <- paste0("data/maps_clutter/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
+                      "_thresh_2500_avg_scans.tif")
+  r <- rast(map_birds)
+  rc <- rast(map_clutt)
+  
+  rn <- r
+  t <- as.numeric(m["thresh"])
+  rn[rc >= t] <- NA
+  a <- raster.gaussian.smooth(rn, s=1, n=15, na.rm = TRUE, type = "mean")
+  fp_tif <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], "_thresh_", t, 
+                   "_s_", m["s"], "_n_", m["n"], ".tif")
+  fp_clut <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], "_thresh_", t, 
+                    "_s_", m["s"], "_n_", m["n"], "_clutter.tif")
+  fp_plot <- paste0("data/final_maps/plots/NL_", m["season"], "_", m["daytime"], "_thresh_", t,  
+                    "_s_", m["s"], "_n_", m["n"], "_plot.png")
+  writeRaster(a, filename = str_replace_all(fp_tif, " ", ""), overwrite = TRUE)
+  writeRaster(rc, filename = str_replace_all(fp_clut, " ", ""), overwrite = TRUE)
+  
+  if (m["season"] == "autumn") {
+    zlims <- c(0, 800)
+  } else if (m["season"] == "spring") {
+    zlims <- c(0, 500)
+  }
+  
+  data <- as.data.frame(a, xy = TRUE)
+  clut <- as.data.frame(rc, xy = TRUE) %>% filter(vir_mean >= t) %>% mutate(vir_mean = 1)
+  ggplot() +
+    geom_raster(aes(x = x, y = y, fill = focal_mean), data = data, ) +
+    scale_fill_viridis_c(limits = zlims, oob = scales::squish, option = "inferno") +
+    new_scale_fill() +
+    geom_raster(data = clut, aes(x = x, y = y), fill = alpha("white", 0.1)) +
+    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+    dark_theme_minimal() +
+    labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) -> p
+  
+  ggsave(p, filename = str_replace_all(fp_plot, " ", ""))
+  print(paste0("Map ", i, " of ", length(cm)))
+  i <- i + 1
+}
+# cb <- c(r, rc)
+# plot(rc)
+# 
+# rc[rc < 250] <- 0
+# rc[rc >= 250] <- 1
+# plot(rc)
+# writeRaster(rc, "test_clutter.tif", overwrite = TRUE)
+# 
+# rn <- r
+# rn[rc >= 250] <- NA
+# plot(rn)
+# writeRaster(rn, "test_clutter.tif", overwrite = TRUE)
+# 
+# rn <- r
+# rn[rc >= 250] <- NA
+# a <- raster.gaussian.smooth(rn, s=1, n=11, na.rm = TRUE, type = "mean")
+# plot(a)
+# # plot(a)
+# # writeRaster(a, "test.tif", overwrite = TRUE)
+# # # plot(r)
+#   
+# data <- as.data.frame(a, xy = TRUE)
+# ggplot() +
+#   geom_raster(aes(x = x, y = y, fill = focal_mean), data = data) +
+#   # geom(data = data, aes(x = x, y = y, fill = vir_mean)) +
+#   # scale_fill_viridis_c(limits = c(0, 650)) +
+#   scale_fill_viridis_c() +
+#   dark_theme_minimal()
+```
+
+
+# Final maps tweaks
+
+```{r}
+autumn_normal <- rast("data/maps/night/scans/NL_autumn_night_thresh_2500_avg_scans_seasons_nonstandardized.tif")
+autumn_ht <- rast("data/maps/night/scans/NL_autumn_night_thresh_5000_avg_scans_seasons_nonstandardized.tif")
+spring_normal <- rast("data/maps/night/scans/NL_spring_night_thresh_2500_avg_scans_seasons_nonstandardized.tif")
+spring_ht <- rast("data/maps/night/scans/NL_spring_night_thresh_5000_avg_scans_seasons_nonstandardized.tif")
+
+# sm <- rast(selected_map)
+# sm2 <- rast(selected_map2)
+# plot(sm)
+# plot(sm2)
+# 
+# out <- sm - sm2
+# out <- sm
+
+a_normal <- as.data.frame(autumn_normal, xy = TRUE) %>% rename(vir_a_normal = vir_mean)
+a_ht <- as.data.frame(autumn_ht, xy = TRUE) %>% dplyr::select(vir_mean) %>% rename(vir_a_ht = vir_mean)
+s_normal <- as.data.frame(spring_normal, xy = TRUE) %>% dplyr::select(vir_mean) %>% rename(vir_s_normal = vir_mean)
+s_ht <- as.data.frame(spring_ht, xy = TRUE) %>% dplyr::select(vir_mean) %>% rename(vir_s_ht = vir_mean)
+
+data <- bind_cols(a_normal, a_ht, s_normal, s_ht)
+
+qt <- 0.95
+
+data %>%
+  mutate(vqt_a_normal = if_else(vir_a_normal >= quantile(vir_a_normal, qt, na.rm = TRUE), TRUE, FALSE),
+         vqt_a_ht = if_else(vir_a_ht >= quantile(vir_a_ht, qt, na.rm = TRUE), TRUE, FALSE),
+         vqt_s_normal = if_else(vir_s_normal >= quantile(vir_s_normal, qt, na.rm = TRUE), TRUE, FALSE),
+         vqt_s_ht = if_else(vir_s_ht >= quantile(vir_s_ht, qt, na.rm = TRUE), TRUE, FALSE),
+         clutter = if_else(vqt_a_normal & vqt_a_ht & vqt_s_normal & vqt_s_ht, TRUE, FALSE),
+         vir_new = if_else(clutter, NA, vir_a_normal)) %>%
+  identity() -> rast_new
+
+r <- rast(rast_new, type = "xyz")
+r <- autumn_normal
+r <- r$vir_mean
+# r <- focal(r, w = 11, fun = "min", na.policy = "all", na.rm = TRUE)
+a <- raster.gaussian.smooth(r, s=2, n=5, na.rm = TRUE, type = "mean")
+plot(a)
+writeRaster(a, "test.tif")
+plot(r)
+  
+ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_new)) +
+  # geom(data = data, aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_viridis_c(limits = c(0, 650)) +
+  scale_fill_viridis_c() +
+  dark_theme_minimal()
+```
+
+
 
 
