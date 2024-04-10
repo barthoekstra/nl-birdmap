@@ -9,11 +9,20 @@ library(raster)
 library(patchwork)
 library(ggdark)
 
-visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged") {
+visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
   rl <- 160000
 
-  rbc_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
-  rbc_plot_filename <- paste0("data/rbc_png/", tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
+  if (!cluttermap) {
+    basedir <- c("data/rbc/", "data/rbc_png/", "data/rbc_orig/")
+  } else {
+    basedir <- c("data/rbc_clutter/", "data/rbc_png_clutter/", "data/rbc_orig_clutter/")
+  }
+  names(basedir) <- c("rbc", "png", "orig")
+
+  rbc_filename <- paste0(basedir["rbc"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
+  rbc_plot_filename <- paste0(basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
+  rbc_orig_filename <- paste0(basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
+
   if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
     return("exists")
@@ -40,7 +49,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged")
   }
   bioRad::sd_vvp_threshold(vp) <- 2
 
-  rbc_orig_filename <- paste0("data/rbc_orig/", tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
+
   if (!file.exists(rbc_orig_filename)) {
     cat("Calculate original RBC\n")
     rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
