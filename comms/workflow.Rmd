@@ -1,0 +1,158 @@
+
+```{r}
+library(bioRad)
+library(parallel)
+library(tidyverse)
+library(ggdark)
+library(ggnewscale)
+library(zoo)
+library(scico)
+library(ggtext)
+```
+
+```{r}
+vpfiles <- list.files("vps_50m", full.names = TRUE, recursive = TRUE)
+
+vps <- mclapply(vpfiles, read_vpfiles, mc.cores = 15, mc.preschedule = FALSE)
+vpts <- regularize_vpts(bind_into_vpts(vps))
+sd_vvp_threshold(vpts) <- 1
+vpts$night <- check_night(vpts)
+saveRDS(vpts, "vpts.RDS")
+```
+
+```{r}
+long_vpts <- data.frame(height = rep(vpts$height, times = length(vpts$datetime)))
+long_vpts$datetime <- rep(vpts$datetime, times = length(vpts$height))
+long_vpts$night <- rep(vpts$nighttime, times = length(vpts$height))
+long_vpts <- arrange(long_vpts, datetime, height)
+
+for (i in 1:length(vpts$data)) {
+  q <- as.data.frame(vpts$data[[i]])
+  q$height <- vpts$height
+  q <- relocate(q, height, .before = 1)
+  q <- pivot_longer(q, cols = -c(height), names_to = "datetime", values_to = names(vpts$data)[[i]])
+  q$datetime <- rep(vpts$datetime, times = length(vpts$height))
+  q <- arrange(q, datetime, height)
+  long_vpts <- bind_cols(long_vpts, q %>% dplyr::select(last_col()))
+}
+
+vpi <- integrate_profile(vpts)
+vpi$night <- check_night(vpi)
+# long_vpts <- pivot_longer(long_vpts, cols = -c(datetime, height), names_to = "quantity", values_to = "value")
+```
+
+```{r}
+suntimes <- suncalc::getSunlightTimes(as_date(vpts$datetime), lat = vpts$attributes$where$lat, lon = vpts$attributes$where$lon,
+                                      keep = c("sunset", "sunrise"))
+suntimes <- suntimes %>%
+  mutate(sunset = round_date(sunset, "5 minutes"),
+         sunrise = round_date(sunrise, "5 minutes"),
+         sunset_later = sunset + hours(2) + minutes(30),
+         sunrise_later = sunrise + hours(2)) %>%
+  select(-c(lon, lat)) %>%
+  distinct()
+```
+
+
+```{r}
+long_vpts %>% 
+  mutate(height_rev = if_else(night, (height * -1) + 50, height - 50)) -> long_vpts
+
+vpi <- mutate(vpi, mtr_rev = if_else(night, mtr * -1, mtr), mtr_col = if_else(mtr_rev >= 0, 1, 0))
+
+ggplot() +
+  geom_raster(data = long_vpts %>% filter(datetime > as_date("2017-10-12")), aes(x = datetime, y = height_rev, fill = dens)) +
+  geom_hline(yintercept = 0, linewidth = 0.5, alpha = 0.5) +
+  scale_fill_viridis_c(option = "inferno", oob = scales::squish, limits = c(0, 200), na.value = "black") +
+  # scale_y_continuous(labels = abs) +
+  geom_line(data = vpi %>% filter(datetime > as_date("2017-10-12")) %>% mutate(mtr_rev = mtr_rev * 0.4), 
+            aes(x = datetime, y = rollmean(mtr_rev, 15, fill = NA), color = mtr_col), na.rm = TRUE) +
+  scale_color_gradientn(colors = c("white", "yellow")) +
+  scale_y_continuous(labels = abs, sec.axis = sec_axis(~ . * 2.5, labels = abs, name = "Migration traffic rate (#/km/hr)")) +
+  annotate(geom = "segment", x = as_datetime("2017-10-31"), xend = as_datetime("2017-10-31"), y = 1500, yend = 2250, 
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "segment", x = as_datetime("2017-10-31"), xend = as_datetime("2017-10-31"), y = -1500, yend = -2250,
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "text", x = as_datetime("2017-10-30 18:00:00"), y = 1875, label = "Day", hjust = 1, size = 10) +
+  annotate(geom = "text", x = as_datetime("2017-10-30 18:00:00"), y = -1875, label = "Night", hjust = 1, size = 10) +
+  coord_cartesian(ylim = c(-2500, 2500), expand = FALSE) +
+  labs(title = "Time series of radar vertical profiles",
+       subtitle = "Split across daytime (top) and nighttime (bottom) migration",
+       caption = "October 12th till 31st, 2017, Herwijnen Radar",
+       x = "Date", 
+       y = "Height above ground (m)") +
+  dark_theme_minimal(base_size = 18, base_family = "Helvetica") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = .5,
+                               barwidth = unit(20, "lines"), barheight = unit(0.5, "lines"), 
+                               title = "Bird density (#/km<sup>3</sup>)"),
+         color = "none") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        plot.title.position = "plot",
+        plot.caption.position = "plot",
+        legend.position = "top",
+        legend.title = element_markdown(),
+        plot.background = element_rect(fill = "black", colour = "black"),
+        panel.background = element_rect(fill = "black", colour = "black")) -> pl1
+
+pl1
+
+ggsave("vpts.pdf", pl1, width = 16, height = 10)
+```
+
+```{r}
+long_vpts %>% 
+  mutate(height_rev = if_else(night, (height * -1) + 50, height - 50)) %>%
+  identity() -> long_vpts
+
+vpi <- mutate(vpi, mtr_rev = if_else(night, mtr * -1, mtr), mtr_col = if_else(mtr_rev >= 0, 1, 0))
+
+ggplot() +
+  geom_raster(data = long_vpts %>% filter(datetime > as_date("2017-10-27")), aes(x = datetime, y = height_rev, fill = dens)) +
+  geom_hline(yintercept = 0, linewidth = 0.5, alpha = 0.5) +
+  geom_segment(data = suntimes %>% filter(date >= as_date("2017-10-27")), 
+               aes(x = sunset_later, xend = sunset_later, y = 0, yend = -2000), color = "white") +
+  geom_segment(data = suntimes %>% filter(date >= as_date("2017-10-27")), 
+               aes(x = sunrise_later, xend = sunrise_later, y = 0, yend = 2000), color = "yellow") +
+  scale_fill_viridis_c(option = "inferno", oob = scales::squish, limits = c(0, 200), na.value = "black") +
+  # scale_y_continuous(labels = abs) +
+  geom_line(data = vpi %>% filter(datetime > as_date("2017-10-27")) %>% mutate(mtr_rev = mtr_rev * 0.4), 
+            aes(x = datetime, y = rollmean(mtr_rev, 15, fill = NA), color = mtr_col), na.rm = TRUE) +
+  scale_color_gradientn(colors = c("white", "yellow")) +
+  scale_y_continuous(labels = abs, sec.axis = sec_axis(~ . * 2.5, labels = abs, name = "Migration traffic rate (#/km/hr)")) +
+  annotate(geom = "segment", x = as_datetime("2017-10-31"), xend = as_datetime("2017-10-31"), y = 1500, yend = 2250, 
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "segment", x = as_datetime("2017-10-31"), xend = as_datetime("2017-10-31"), y = -1500, yend = -2250,
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "text", x = as_datetime("2017-10-30 18:00:00"), y = 1875, label = "Day", hjust = 1, size = 10) +
+  annotate(geom = "text", x = as_datetime("2017-10-30 18:00:00"), y = -1875, label = "Night", hjust = 1, size = 10) +
+  coord_cartesian(ylim = c(-2500, 2500), expand = FALSE) +
+  labs(title = "Time series of radar vertical profiles",
+       subtitle = "Split across daytime (top) and nighttime (bottom) migration",
+       caption = "October 12th till 31st, 2017, Herwijnen Radar",
+       x = "Date", 
+       y = "Height above ground (m)") +
+  dark_theme_minimal(base_size = 18, base_family = "Helvetica") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = .5,
+                               barwidth = unit(20, "lines"), barheight = unit(0.5, "lines"), 
+                               title = "Bird density (#/km<sup>3</sup>)"),
+         color = "none") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        plot.title.position = "plot",
+        plot.caption.position = "plot",
+        legend.position = "top",
+        legend.title = element_markdown(),
+        plot.background = element_rect(fill = "black", colour = "black"),
+        panel.background = element_rect(fill = "black", colour = "black")) -> pl1
+
+pl1
+
+ggsave("vpts_zoomed.pdf", pl1, width = 16, height = 10)
+```
+
+
+```{r}
+plot(vpts, quantity = "dens", ylim = c(0, 3000))
+```
+
