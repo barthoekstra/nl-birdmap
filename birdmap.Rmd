@@ -1306,11 +1306,29 @@ bb$pattern <- "stripe"
 radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
 radars <- geojsonsf::geojson_sf("data/gis/Radars.geojson") %>% st_transform(c) %>% filter(acronym != "artis")
 
+res_all <- st_read("data/gis/RES/RES_zoekgebieden_Actueel.shp") %>% filter(str_detect(`Type_`, 'Wind')) %>% st_transform(c)
+res_all %>%
+  sf:::select.sf(RES_id, Naam_gebie, Type_, Regio, RES_deel_r) %>%
+  identity() -> res
+avg_an <- st_as_sf(aggregate(st_as_stars(ban), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
+  rename(VIR_autumn_night = focal_mean) %>%
+  mutate(VID_autumn_night = VIR_autumn_night / 11)
+avg_sn <- st_as_sf(aggregate(st_as_stars(bsn), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
+  rename(VIR_spring_night = focal_mean) %>%
+  mutate(VID_spring_night = VIR_spring_night / 11)
+avg_ad <- st_as_sf(aggregate(st_as_stars(bad), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
+  rename(VIR_autumn_day = focal_mean) %>%
+  mutate(VID_autumn_day = VIR_autumn_day / 11)
+avg_sd <- st_as_sf(aggregate(st_as_stars(bsd), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
+  rename(VIR_spring_day = focal_mean) %>%
+  mutate(VID_spring_day = VIR_spring_day / 11)
+
+res_averages <- cbind(res, avg_an, avg_sn, avg_ad, avg_sd)
+
 bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
 clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
 uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
 uncertainty$certainty <- "Onzeker"
-uncertainty %>% st_transform(c) %>% st_write("data/package/uncertainty.geojson", append = FALSE)
 
 nl_buf_spatvector <- vect(nl_buf)
 
