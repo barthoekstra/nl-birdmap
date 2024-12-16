@@ -24,6 +24,7 @@ library(colorspace)
 library(ggspatial)
 library(ggpattern)
 library(ggfx)
+library(gghalves)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
@@ -1308,6 +1309,17 @@ nhol_bbox <- st_bbox(nhol_buf)
 radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
 radars <- geojsonsf::geojson_sf("data/gis/Radars.geojson") %>% st_transform(c) %>% filter(acronym != "artis")
 
+egmondaanzee <- st_read("data/gis/all_gemeentes/wijk_2020_v3.shp") %>% st_transform(c) %>% filter(WK_CODE == "WK037304") %>% 
+  st_buffer(100) %>% st_union() %>% st_as_sf() %>% mutate(gebied = "Egmond aan Zee") %>% rename(geometry = x)
+
+gebieden <- geojsonsf::geojson_sf("data/gis/gemeenten.geojson") %>% st_transform(c) %>% 
+  filter(Gemeentenaam %in% c("Amsterdam", "Diemen")) %>%
+  rename(gebied = Gemeentenaam) %>%
+  dplyr::select(gebied, geometry) %>%
+  bind_rows(nhol %>% st_as_sf() %>% rename(geometry = x) %>% mutate(gebied = "Noord-Holland")) %>%
+  bind_rows(nl %>% mutate(gebied = "Nederland") %>% dplyr::select(gebied, geometry)) %>%
+  bind_rows(egmondaanzee)
+
 bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
 clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
 uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
@@ -1319,22 +1331,112 @@ res_all <- st_read("data/gis/RES/RES_zoekgebieden_Actueel.shp") %>%
 res_all %>%
   sf:::select.sf(RES_id, Naam_gebie, Type_, Regio, RES_deel_r) %>%
   st_difference(clut_bufc) %>%
-  mutate(Naam_gebie = str_replace(Naam_gebie, "\\d+[a-z]\\) ", "")) %>%
+  mutate(Naam_gebie = str_replace(Naam_gebie, "\\d+[a-z]\\) ", ""),
+         ID = row_number()) %>%
   identity() -> res
 
-t <- extract(ban, vect(res), raw = TRUE)
+ban_extract <- extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(VIR_autumn = focal_mean)
+bsn_extract <- extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(VIR_spring = focal_mean)
+
+ban_extract %>%
+  cbind(bsn_extract %>% dplyr::select(VIR_spring)) %>%
+  left_join(res, by = "ID") %>%
+  arrange(desc(VIR_autumn)) %>%
+  mutate(VID_autumn = VIR_autumn / 11,
+         VID_spring = VIR_spring / 11,
+         Naam_gebie = as.factor(Naam_gebie),
+         Naam_gebie = fct_reorder(Naam_gebie, VIR_autumn),
+         geometry_x = st_coordinates(st_centroid(geometry))[,1],
+         geometry_y = st_coordinates(st_centroid(geometry))[,2]) %>%
+  group_by(Naam_gebie) %>%
+  mutate(VID_mean = mean(VID_autumn)) %>%
+  ungroup() %>%
+  group_by(RES_deel_r) %>%
+  mutate(mean_x = mean(geometry_x),
+         mean_y = mean(geometry_y),
+         RES_deel_r = as.factor(RES_deel_r),
+         RES_deel_r = fct_reorder(RES_deel_r, mean_y, .desc = FALSE),
+         RES_deel_r = recode(RES_deel_r,
+                             "Regio Alkmaar" = "Alkmaar",
+                             "West-Friesland" = "West-Friesland",
+                             "IJmond-Zuid Kennemerland" = "IJmond/\nZuid-Kennemerland",
+                             "Zaanstreek-Waterland" = "Zaanstreek/\nWaterland",
+                             "Amsterdam" = "Amsterdam",
+                             "Amstelland" = "Amstelland",
+                             "Haarlemmermeer" = "Haarlemmermeer")) %>%
+  ungroup() %>%
+  identity() -> res_summaries
+
+res_summaries %>%
+  ggplot(aes(x = VID_autumn, y = Naam_gebie)) +
+  ggdist::stat_pointinterval(aes(color = VID_mean), .width = c(1, .5)) +
+  scale_color_viridis_c(begin = 0.1, name = "Vogels/km2", guide = guide_none()) +
+  dark_theme_gray(base_size = 12, base_family = "Helvetica") +
+  # facet_grid(vars(fct_reorder(RES_deel_r, mean_y, .desc = TRUE)), scales = "free_y", space = "free_y") +
+  theme(strip.text.y.right = element_text(angle = 0),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.7, "inches"),
+        legend.key.height = unit(0.2, "inches")) +
+  labs(title = "Dichtheid vogels per zoekgebied (nachttrek)", 
+       x = expression("vogels / km"^2),
+       y = "")
+
+ggsave(filename = "data/final_maps_plots/zoekgebieden.pdf", width = 8, height = 7)
+
+res_summaries %>%
+  ggplot(aes(x = VID_autumn, y = Naam_gebie)) +
+  stat_pointinterval(aes(color = VID_mean), .width = c(1, .5)) +
+  scale_color_viridis_c(begin = 0.1, name = "Vogels/km2", guide = guide_none()) +
+  dark_theme_gray(base_size = 12, base_family = "Helvetica") +
+  facet_grid(vars(fct_reorder(RES_deel_r, mean_y, .desc = TRUE)), scales = "free_y", space = "free_y") +
+  theme(strip.text.y.right = element_text(angle = 0),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.7, "inches"),
+        legend.key.height = unit(0.2, "inches")) +
+  labs(title = "Dichtheid vogels per zoekgebied (nachttrek)", 
+       x = expression("vogels / km"^2),
+       y = "")
+
+ggsave(filename = "data/final_maps_plots/zoekgebieden_per_deelgebied.pdf", width = 8, height = 7)
+
+res_summaries %>%
+  group_by(Naam_gebie) %>%
+  summarise(autumn = mean(VID_autumn),
+            spring = mean(VID_spring),
+            mean_seasons = mean(c(autumn, spring))) %>%
+  ungroup() %>%
+  ggplot(aes(y = Naam_gebie, x = mean_seasons, group = Naam_gebie)) +
+  geom_linerange(aes(y = Naam_gebie, xmin = spring, xmax = autumn), color = alpha("white", 0.5)) +
+  geom_point(aes(y = Naam_gebie, x = spring, color = "Voorjaar")) +
+  geom_point(aes(y = Naam_gebie, x = autumn, color = "Najaar")) +
+  scale_color_manual(values = c("Voorjaar" = "blue", "Najaar" = "red"), name = "Seizoen") +
+  dark_theme_gray() +
+  theme(legend.direction = "horizontal",
+        legend.position = c(1, 0),
+        legend.justification = c("right", "bottom"),
+        legend.key.width = unit(0.3, "inches"),
+        legend.key.height = unit(0.2, "inches"),
+        legend.background = element_rect(fill = NA),
+        legend.key = element_rect(fill = NA)) +
+  labs(title = "Gemiddelde dichtheid vogels per zoekgebied (nachttrek)", 
+       x = expression("vogels / km"^2),
+       y = "")
+
+ggsave(filename = "data/final_maps_plots/verschil_voorjaar_najaar_per_zoekgebied.pdf", width = 8, height = 7)
 
 avg_an <- st_as_sf(aggregate(st_as_stars(ban), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
-  rename(VIR_autumn_night = focal_mean) %>%
+  rename(VIR_autumn_night = 1) %>%
   mutate(VID_autumn_night = VIR_autumn_night / 11)
 avg_sn <- st_as_sf(aggregate(st_as_stars(bsn), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
-  rename(VIR_spring_night = focal_mean) %>%
+  rename(VIR_spring_night = 1) %>%
   mutate(VID_spring_night = VIR_spring_night / 11)
 avg_ad <- st_as_sf(aggregate(st_as_stars(bad), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
-  rename(VIR_autumn_day = focal_mean) %>%
+  rename(VIR_autumn_day = 1) %>%
   mutate(VID_autumn_day = VIR_autumn_day / 11)
 avg_sd <- st_as_sf(aggregate(st_as_stars(bsd), by = res, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
-  rename(VIR_spring_day = focal_mean) %>%
+  rename(VIR_spring_day = 1) %>%
   mutate(VID_spring_day = VIR_spring_day / 11)
 
 res_averages <- cbind(res, avg_an, avg_sn, avg_ad, avg_sd)
@@ -1350,7 +1452,7 @@ res_averages_label <- res_averages %>%
   slice(which(rank_top %in% 1:n_display), which(rank_bottom %in% 1:n_display))
 
 res_bbox <- st_bbox(res_averages)
-
+res_bbox["xmin"] <- res_bbox["xmin"] - 15000
 
 nl_buf_spatvector <- vect(nl_buf)
 
@@ -1422,16 +1524,31 @@ data %>%
 
 ggsave("data/final_maps_plots/night.pdf", width = 17, height = 10, device = cairo_pdf)
 
+```
+
+```{r}
+nhol_bbox_expanded <- nhol_bbox
+padding <- 50000
+nhol_bbox_expanded["xmin"] <- nhol_bbox_expanded["xmin"] - padding
+nhol_bbox_expanded["xmax"] <- nhol_bbox_expanded["xmax"] + padding
+nhol_bbox_expanded["ymin"] <- nhol_bbox_expanded["ymin"] - padding
+nhol_bbox_expanded["ymax"] <- nhol_bbox_expanded["ymax"] + padding
+
+pol_bbox <- st_as_sf(st_as_sfc(st_bbox(nhol_bbox_expanded)))
+pol_nhol <- nhol_buf
+
+nhol_outside_mask <- st_difference(pol_bbox, pol_nhol)
+
 data %>%
-  filter(daytime == "night") %>%
+  filter(daytime == "night", season == "autumn") %>%
   ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, 
-                       name = "VIR (cm2/km2)") +
-  new_scale_fill() +
+  # geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, 
+  #                      name = "VIR (cm2/km2)") +
+  # new_scale_fill() +
   geom_raster(aes(x = x, y = y, fill = vid_mean)) +
-  scale_fill_viridis_c(limits = c(0, 750/11), oob = scales::squish, option = "inferno", na.value = 0,
-                       name = "VID (vogels/km2)") +
+  scale_fill_viridis_c(limits = c(0, 770/11), oob = scales::squish, option = "inferno", na.value = 0,
+                       name = "VID (vogels/km2)", guide = guide_colorbar(nbin = 1000), breaks = seq(0, 770/11, by = 10)) +
   # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
   # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
   geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 3) +
@@ -1440,10 +1557,10 @@ data %>%
   # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
   geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
   geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_label_repel(aes(label = label, geometry = geometry), fill = alpha("black", 0.2),
-                   data = res_averages_label, stat = "sf_coordinates",
-                   max.overlaps = 100, size = 1.5, min.segment.length = 0,
-                   position = position_nudge_repel(y = -7500, x = 5000)) +
+  # geom_label_repel(aes(label = label, geometry = geometry), fill = alpha("black", 0.2),
+  #                  data = res_averages_label, stat = "sf_coordinates",
+  #                  max.overlaps = 100, size = 1.5, min.segment.length = 0,
+  #                  position = position_nudge_repel(y = -7500, x = 5000)) +
   geom_sf_pattern(aes(pattern = certainty),
                   data = uncertainty %>% st_intersection(nl_buf),
                   fill = alpha("black", 0.1), color = alpha("white", 0.1),
@@ -1451,10 +1568,13 @@ data %>%
   scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
   geom_sf(data = res_averages, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
   geom_sf(data = res_averages_label, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = nhol_outside_mask, fill = alpha("black", 0.6), color = NA) +
   annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  coord_sf(xlim = c(nhol_bbox["xmin"], nhol_bbox["xmax"]), ylim = c(nhol_bbox["ymin"], nhol_bbox["ymax"])) +
+  coord_sf(xlim = c(nhol_bbox_expanded["xmin"], nhol_bbox_expanded["xmax"]),
+           ylim = c(nhol_bbox_expanded["ymin"], nhol_bbox_expanded["ymax"]),
+           expand = FALSE) +
   dark_theme_minimal(base_family = "Helvetica") +
-  facet_wrap(vars(season, daytime)) +
+  # facet_wrap(vars(season, daytime)) +
   # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
@@ -1474,8 +1594,155 @@ data %>%
         legend.position = "bottom",
         legend.key.width = unit(0.4, "inch"))
 
-ggsave("data/final_maps_plots/night_labels.pdf", width = 17, height = 10, device = cairo_pdf)
+ggsave("data/final_maps_plots/night_no_labels.pdf", width = 17, height = 10, device = cairo_pdf)
+ggsave("data/final_maps_plots/night_no_labels.pdf", width = 16, height = 20, device = cairo_pdf)
+
+radars <- geojsonsf::geojson_sf("data/gis/Radars.geojson") %>% st_transform(c)
+
+data %>%
+  filter(daytime == "night", season == "autumn") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, 
+  #                      name = "VIR (cm2/km2)") +
+  # new_scale_fill() +
+  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750/11), oob = scales::squish, option = "inferno", na.value = 0,
+                       name = "VID (vogels/km2)") +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 3) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 2) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radars, fill = "NA", color = alpha("white", 0.9), linewidth = 3, size = 3) +
+  # geom_label_repel(aes(label = label, geometry = geometry), fill = alpha("black", 0.2),
+  #                  data = res_averages_label, stat = "sf_coordinates",
+  #                  max.overlaps = 100, size = 1.5, min.segment.length = 0,
+  #                  position = position_nudge_repel(y = -7500, x = 5000)) +
+  geom_sf_pattern(aes(pattern = certainty),
+                  data = uncertainty %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.01, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  geom_sf(data = res_averages, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = res_averages_label, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  # coord_sf(xlim = c(nhol_bbox_expanded["xmin"], nhol_bbox_expanded["xmax"]), 
+  #          ylim = c(nhol_bbox_expanded["ymin"], nhol_bbox_expanded["ymax"])) +
+  # coord_sf(expand = TRUE)
+  dark_theme_minimal(base_family = "Helvetica") +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/night_no_labels_large.pdf", width = 16, height = 20, device = cairo_pdf)
+
+data %>%
+  filter(daytime == "night", season == "spring") %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
+  # scale_fill_viridis_c(limits = c(0, 750), oob = scales::squish, option = "inferno", na.value = 0, 
+  #                      name = "VIR (cm2/km2)") +
+  # new_scale_fill() +
+  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
+  scale_fill_viridis_c(limits = c(0, 750/11), oob = scales::squish, option = "inferno", na.value = 0,
+                       name = "VID (vogels/km2)") +
+  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 3) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 2) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radars, fill = "NA", color = alpha("white", 0.9), linewidth = 3, size = 3) +
+  # geom_label_repel(aes(label = label, geometry = geometry), fill = alpha("black", 0.2),
+  #                  data = res_averages_label, stat = "sf_coordinates",
+  #                  max.overlaps = 100, size = 1.5, min.segment.length = 0,
+  #                  position = position_nudge_repel(y = -7500, x = 5000)) +
+  geom_sf_pattern(aes(pattern = certainty),
+                  data = uncertainty %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
+                  pattern_density = 0.3, pattern_spacing = 0.01, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  geom_sf(data = res_averages, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = res_averages_label, fill = alpha("black", 0.3), color = alpha("white", 0.3), linewidth = .3) +
+  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
+  # coord_sf(xlim = c(nhol_bbox_expanded["xmin"], nhol_bbox_expanded["xmax"]), 
+  #          ylim = c(nhol_bbox_expanded["ymin"], nhol_bbox_expanded["ymax"])) +
+  # coord_sf(expand = TRUE)
+  dark_theme_minimal(base_family = "Helvetica") +
+  # facet_wrap(vars(season, daytime)) +
+  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        # axis.text.x = element_text(color = "white"),
+        # axis.text.y = element_text(color = "white"),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        # plot.background = element_rect(fill = "NA", ),
+        plot.background = element_rect(fill = "black", color = "NA"),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        plot.margin = unit(c(1,1,1,1), "cm"),
+        legend.direction = "horizontal",
+        legend.position = "bottom",
+        legend.key.width = unit(0.4, "inch"))
+
+ggsave("data/final_maps_plots/night_spring_no_labels_large.pdf", width = 16, height = 20, device = cairo_pdf)
 ```
+
+```{r}
+uncertainty_spatvector <- vect(uncertainty)
+
+ban_uncertainty_filtered <- terra::mask(ban, uncertainty_spatvector, inverse = TRUE)
+nl_avg <- aggregate(ban_uncertainty_filtered, fun = mean)
+
+avg_gebieden <- st_as_sf(aggregate(st_as_stars(ban_uncertainty_filtered), by = gebieden, FUN = mean, na.rm = TRUE)) %>% st_drop_geometry() %>%
+  rename(VIR_autumn_night = 1) %>%
+  mutate(VID_autumn_night = VIR_autumn_night / 11)
+
+gebieden %>%
+  bind_cols(avg_gebieden) %>%
+  rename(VID = VID_autumn_night,
+         VIR = VIR_autumn_night) %>%
+  mutate(gebied = recode(gebied, 
+                         "Diemen" = "Gemeente Diemen",
+                         "Amsterdam" = "Gemeente Amsterdam"),
+         gebied = as.factor(gebied),
+         gebied = fct_reorder(gebied, VID)) -> gebieden_summarised
+
+ggplot() +
+  geom_col(aes(y = gebied, x = VID), data = gebieden_summarised %>% filter(gebied != "Nederland"), fill = "yellow") +
+  geom_vline(xintercept = gebieden_summarised$VID[gebieden_summarised$gebied == "Nederland"], linewidth = 1) +
+  dark_theme_minimal(base_family = "Helvetica", base_size = 16) +
+  labs(x = "vogels/km2", y = "")
+
+ggsave("data/final_maps_plots/Gemeentes_Provincie.pdf", width = 10, height = 3.5)
+```
+
 
 data %>%
   filter(daytime == "day") %>%

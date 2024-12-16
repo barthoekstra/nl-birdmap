@@ -12,12 +12,12 @@ library(ggpie)
 
 data_wr <- read_csv("data/profiles/radar_profiles_full.csv") %>%
   rename("radar" = "odim_code", "height" = "hght") %>%
-  select(date_trunc, radar, year_season, year, season, day_night, height, dens)
+  dplyr::select(date_trunc, radar, year_season, year, season, day_night, height, dens)
 
 data_br <- readRDS("data/profiles/altitude_profiles_birdradar.rds") %>%
   mutate(radar = "artis") %>%
   rename("height" = "hght") %>%
-  select(date_trunc, radar, year_season, year, season, day_night, height, dens)
+  dplyr::select(date_trunc, radar, year_season, year, season, day_night, height, dens)
 ```
 
 # Data overviews (vpts)
@@ -29,9 +29,9 @@ data_wr %>%
   filter(day_night == "night", height <= 1000) %>%
   mutate(radar = case_when(radar == "nlhrw" ~ "Herwijnen",
                            radar == "nldhl" ~ "Den Helder",
-                           radar == "artis" ~ "ARTIS"),
+                           radar == "artis" ~ "Amsterdam"),
          radar = as.factor(radar),
-         radar  = fct_relevel(radar, c("Den Helder", "Herwijnen", "ARTIS")),
+         radar  = fct_relevel(radar, c("Den Helder", "Herwijnen", "Amsterdam")),
          season = case_when(season == "autumn" ~ "Najaar",
                             season == "spring" ~ "Voorjaar"),
          day_night = case_when(day_night == "daylight" ~ "Dag",
@@ -70,7 +70,7 @@ data_cb %>%
   summarise(cum_prop = sum(dens01, na.rm = TRUE)) %>%
   ggplot() +
   geom_area(aes(x = date_plot, y = cum_prop, fill = height_f), position = position_stack(reverse = TRUE)) +
-  scale_fill_manual(values = c("#AF0000", "#163B8D", "#003A6D", "#07264E", "#061735"), name = "Vlieghoogte",
+  scale_fill_manual(values = c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735"), name = "Vlieghoogte",
                 guide = guide_legend()) +
   geom_line(aes(x = date_plot, y = cum_prop_rotor, color = "200 m"), linewidth = 0.25) +
   scale_color_manual(values = c("200 m" = alpha("white", 0.75)), name = "Rotortiphoogte") +
@@ -83,7 +83,8 @@ data_cb %>%
   labs(x = "Datum", y = "% van vogeltrek tot 1km hoogte") +
   guides(
     x = guide_axis(minor.ticks = TRUE, angle = -45),
-    y = guide_axis(minor.ticks = TRUE)
+    y = guide_axis(minor.ticks = TRUE),
+    fill = guide_legend(reverse = TRUE)
   ) +
   theme(strip.background = element_blank(),
         strip.text.y = element_text(angle = 0),
@@ -92,7 +93,9 @@ data_cb %>%
         axis.text.x = element_text(size = 9),
         axis.text.y = element_text(size = 9)) -> plot_flight_altitudes
 
-ggsave("vlieghoogte_alle_radars.pdf", plot = plot_flight_altitudes, width = 11, height = 5)
+ggsave("data/altitude_plots/altitude_profile_binned.pdf", plot = plot_flight_altitudes, width = 11, height = 5)
+
+plot_flight_altitudes
 ```
 
 ```{r}
@@ -126,7 +129,9 @@ data_cb %>%
         axis.text.x = element_text(size = 9),
         axis.text.y = element_text(size = 9)) -> plot_densities
 
-ggsave("vogeldichtheden_alle_radars.pdf", plot = plot_densities, width = 11, height = 5)
+ggsave("data/altitude_plots/altitude_profile_densities.pdf", plot = plot_densities, width = 11, height = 5)
+
+plot_densities
 ```
 
 
@@ -135,7 +140,7 @@ plot_flight_altitudes / plot_densities -> plot_combined
 
 plot_combined
 
-ggsave("vogeldichtheden_vlieghoogtes_alle_radars.pdf", plot = plot_combined, width = 12, height = 11)
+ggsave("data/altitude_plots/densities_altitudes_combined.pdf", plot = plot_combined, width = 12, height = 11)
 ```
 
 # Altitudes

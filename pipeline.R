@@ -508,6 +508,22 @@ processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", o
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
+
+cores <- 14
+files <- list.files(path = "data/pvol_clutter", full.names = TRUE)
+files <- files[!files %in% c("data/pvol_clutter/dhl_files.sh", "data/pvol_clutter/hrw_files.sh")]
+remaining_files <- str_replace(files, ".h5", ".RDS")
+remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol_clutter/" = "/rbc_clutter/", ".RDS" = "_full.RDS"))
+remaining_files_full <- files[!file.exists(remaining_files_full)]
+# remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
+# remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
+remaining_files <- unique(c(remaining_files_full))
+# processing <- lapply(remaining_files[1:3], visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE)
+processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE,
+                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
+
+
 # files <- Sys.glob("data/rbc/*.RDS")
 #
 # test <- pbmclapply(files, function(x) {

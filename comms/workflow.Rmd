@@ -156,3 +156,21 @@ ggsave("vpts_zoomed.pdf", pl1, width = 16, height = 10)
 plot(vpts, quantity = "dens", ylim = c(0, 3000))
 ```
 
+
+# Scan filtering
+
+```{r}
+rbc <- readRDS("../data/rbc/NLDHL_pvol_20170215T1925_6234_full.RDS")
+rbc$data$VIR[rbc$data$VIR == 0] <- NA
+
+c <- crs(rbc)
+  nl <- geojsonsf::geojson_sfc("../data/gis/Netherlands.geojson") %>% st_transform(c)
+
+plot(rbc) +
+  dark_theme_minimal() +
+  geom_sf(fill = "white", data = geojsonsf::geojson_sf("../data/gis/Netherlands.geojson"))
+```
+
+
+
+
