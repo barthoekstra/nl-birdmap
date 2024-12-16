@@ -53,3 +53,9 @@ data/
 comms/vps
 comms/vps_50m
 comms/vps_unused
+comms/*.pdf
+comms/*.png
+comms/*.RDS
+*.tif
+*.pdf
+*.png
