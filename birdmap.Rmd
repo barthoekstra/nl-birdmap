@@ -28,27 +28,22 @@ library(gghalves)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
-# Download polar volume data from peak nights
+# Select peak nights
+We start with loading a dataset containing cumulative passage metrics for day and night across Dutch weather radars, both seasons and all years.
 
 ```{r}
-vp_mtr <- read_csv("data/vp_mtr_ordered_seasonal_day_night_migration.csv", 
-                   col_types = cols(
-                     date_trunc = col_datetime(),
-                     odim_code = col_character(),
-                     year_season = col_character(),
-                     year = col_double(),
-                     season = col_character(),
-                     day_night = col_character(),
-                     slope_max = col_double(),
-                     slope_max_time = col_datetime(),
-                     mtr = col_double(),
-                     prop = col_double(),
-                     mtr_cum = col_double(),
-                     prop_cum = col_double(),
-                     top = col_double()
-                  )
-                  )
+vp_mtr <- read_csv("data/vp_mtr_ordered_seasonal_day_night_migration.csv",
+  col_types = cols(
+    date_trunc = col_datetime(), odim_code = col_character(), year_season = col_character(), year = col_double(),
+    season = col_character(), day_night = col_character(), slope_max = col_double(), slope_max_time = col_datetime(),
+    mtr = col_double(), prop = col_double(), mtr_cum = col_double(), prop_cum = col_double(), top = col_double()
+  )
+) %>% 
+  filter(day_night == "night")
+
+head(vp_mtr %>% dplyr::select(date_trunc, odim_code, year, season, prop_cum, top), 10)
 ```
+The dataset is sorted from largest night to smalles night in terms of cumulative passage, so we can select the peak nights that capture 50% of migration by selecting all nights that cumulatively have selected less and then the first night that pushes it above 50%.
 
 ```{r}
 vp_mtr_cum50 <- vp_mtr %>%
@@ -56,6 +51,8 @@ vp_mtr_cum50 <- vp_mtr %>%
 
 vp_mtr_cum50
 ```
+
+Now that we have identified the nights, we can calculate the moment of sunset, to find the polar volume scan closest to 2.5hrs after sunset.
 
 ```{r}
 calculate_scantime <- function(r) {
