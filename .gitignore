@@ -49,7 +49,10 @@ po/*~
 rsconnect/
 
 .DS_Store
-data/
+data/*
+!data/pvol
+data/pvol/*
+!data/pvol/.gitkeep
 comms/vps
 comms/vps_50m
 comms/vps_unused
