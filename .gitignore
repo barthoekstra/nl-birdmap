@@ -87,6 +87,10 @@ data/rbc_png_clutter/full/Accepted/*
 !data/rbc_png_clutter/full/Accepted/.gitkeep
 !data/rbc_png_clutter/full/Rejected/.gitkeep
 
+!data/plots
+data/plots/*
+!data/plots/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
