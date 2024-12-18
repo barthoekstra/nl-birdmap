@@ -8,6 +8,7 @@ library(sf)
 library(raster)
 library(patchwork)
 library(ggdark)
+library(vol2birdR)
 
 rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
   rl <- 160000 # RBC range in m
