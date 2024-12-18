@@ -9,8 +9,8 @@ library(raster)
 library(patchwork)
 library(ggdark)
 
-visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
-  rl <- 160000
+rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
+  rl <- 160000 # RBC range in m
 
   if (!cluttermap) {
     basedir <- c("data/rbc/", "data/rbc_png/", "data/rbc_orig/")
@@ -48,7 +48,6 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
     vp <- read_vpfiles(vp_filename)
   }
   bioRad::sd_vvp_threshold(vp) <- 2
-
 
   if (!file.exists(rbc_orig_filename)) {
     cat("Calculate original RBC\n")
@@ -489,54 +488,31 @@ plot_ppi_nl <- function(ppi, param, xlim, ylim, title) {
           axis.title.y = element_blank())
 }
 
-cores <- 14
+## Example processing pipelines
+cores <- 14  # Recommended to tweak depending on available memory when parallel processing
+
+# Processing scans to range-bias corrected PPIs and diagnostic plots to filter out clutter
 files <- list.files(path = "data/pvol", full.names = TRUE)
-files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
+files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh", ".gitkeep")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.RDS"))
 remaining_files_full <- files[!file.exists(remaining_files_full)]
-remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
-remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
-remaining_files <- unique(c(remaining_files_averaged, remaining_files_full))
+remaining_files <- remaining_files_full
 
-# processing <- lapply(remaining_files[100:103], visual_filter, azim_method = "averaged", overwrite = TRUE)
-
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = FALSE,
-                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE,
+processing <- pbmclapply(remaining_files, rbc_filter, azim_method = "full", overwrite = FALSE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
-
-cores <- 14
+# Processing no-migration scans to range-bias corrected PPIs and diagnostic plots to identify clutter on occasions
+# with no rain and no anomalous propagation.
 files <- list.files(path = "data/pvol_clutter", full.names = TRUE)
-files <- files[!files %in% c("data/pvol_clutter/dhl_files.sh", "data/pvol_clutter/hrw_files.sh")]
+files <- files[!files %in% c("data/pvol_clutter/dhl_files.sh", "data/pvol_clutter/hrw_files.sh", ".gitkeep")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol_clutter/" = "/rbc_clutter/", ".RDS" = "_full.RDS"))
 remaining_files_full <- files[!file.exists(remaining_files_full)]
-# remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
-# remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
-remaining_files <- unique(c(remaining_files_full))
-# processing <- lapply(remaining_files[1:3], visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE)
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE,
+remaining_files <- remaining_files_full
+
+processing <- pbmclapply(remaining_files, rbc_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-
-
-# files <- Sys.glob("data/rbc/*.RDS")
-#
-# test <- pbmclapply(files, function(x) {
-#   rbc <- readRDS(x)
-#   azim_plot <- plot_azimuth_effect(rbc)
-#
-#   filebase <- tools::file_path_sans_ext(basename(x))
-#   if (stringr::str_ends(filebase, "averaged")) azim_method <- "averaged"
-#   if (stringr::str_ends(filebase, "full")) azim_method <- "full"
-#
-#   azimuth_plot_filename <- paste0("data/rbc/", filebase, "_azimuth_", azim_method, ".png")
-#   ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
-#
-# }, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-
 
