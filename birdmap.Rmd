@@ -147,10 +147,11 @@ vp_mtr_cum50 %>%
 # Process RBCs
 The pipeline used to convert the polar volume scans to range-bias corrected PPIs that we can incorporate in our bird migration maps, is self-contained in the `rbc_preprocessing.R` file.
 
-# RBC Selection
+# RBC selection
 After processing the RBCs, there is a folder `data/rbc_png/full` that contains .png's with several diagnostic plots of the processed RBCs. These have to be manually screened for clutter from rain and anomalous propagation and files should be moved to the subfolders `Accepted` if the scans are clean examples of bird migration and `Rejected` if they aren't.
 
 # Selected usable scans
+We now add the outcome of the screening procedure to the dataframe containing an overview of our data.
 
 ```{r}
 accepted_files <- list.files("data/rbc_png/full/Accepted/")
@@ -179,7 +180,9 @@ vp_mtr_cum50 %>%
 
 # Seasonal proportion of migration covered
 
-```{r}
+Having screened the scans now, we can see what proportion of seasonal migration is captured in the clean scans.
+
+```{r message=FALSE}
 vp_mtr_cum50_cl %>%
   filter(status == "Accepted") %>%
   group_by(year, season, odim_code, day_night) %>%
@@ -199,15 +202,43 @@ vp_mtr_cum50_cl %>%
     day_night_nice = case_when(
       day_night == "day" ~ "Day",
       day_night == "night" ~ "Night"
-    )) -> sp
-
-sp
+    )) %>%
+  ungroup() %>%
+  identity()-> sp
 
 sp %>%
-  group_by(odim_code, day_night) %>%
-  summarise(mean_prop = mean(total_prop)) -> sp_means
+  group_by(odim_code, radar_nice) %>%
+  summarise(mean_prop = mean(total_prop),
+            min_prop = min(total_prop),
+            max_prop = max(total_prop)) %>%
+  ungroup() -> sp_summary
 
-sp_means
+sp_summary
+
+sp %>%
+  group_by(season) %>%
+  summarise(mean_prop = mean(total_prop),
+            min_prop = min(total_prop),
+            max_prop = max(total_prop)) %>%
+  ungroup() -> sp_summary_seasonal
+
+sp_summary_seasonal
+```
+
+```{r}
+# Define the moon and sun symbols using Unicode
+sp %>%
+  mutate(total_prop = total_prop * 100) %>%
+  ggplot() +
+  geom_point(aes(x = season_date, y = total_prop, color = total_prop)) +
+  geom_hline(data = sp_means, aes(yintercept = mean_prop * 100), linetype = "dashed", color = "black") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  facet_wrap(vars(radar_nice)) +
+  xlab("Season") +
+  ylab("% of migration mapped") + 
+  labs(title = "Seasonal proportion of migration included in map", color = "% of migration")
+
+ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
 ```
 
 
