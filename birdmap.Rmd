@@ -64,7 +64,7 @@ calculate_scantime <- function(r) {
     lat <- 52.9528
     lon <- 4.79061
   }
-  
+
   if (r["day_night"] == "daylight") {
     scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]), keep = "sunrise")
     scantime <- scantime$sunrise + hours(2)
@@ -73,7 +73,7 @@ calculate_scantime <- function(r) {
     scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]) - 1, keep = "sunset")
     scantime <- scantime$sunset + hours(2) + minutes(30)
   }
-  
+
   scantime <- round_date(scantime, "5 mins")
 }
 
@@ -82,8 +82,10 @@ scantimes <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_
 vp_mtr_cum50$moment <- scantimes
 vp_mtr_cum50
 ```
+# Download peak time scans
+From the `moment` column in the `vp_mtr_cum50` dataframe, one can distill which pvol files have to be downloaded from the KNMI weather radar repository. At the UvA, we host those publicly available datasets locally on a private [minio](https://min.io) S3 server, but others can download the polar volume files from the KNMI directly: [Herwijnen](https://dataplatform.knmi.nl/dataset/radar-tar-vol-full-herwijnen-1-0) and [Den Helder](https://dataplatform.knmi.nl/dataset/radar-tar-volume-denhelder-1-0) after [registering](https://developer.dataplatform.knmi.nl) for a free API key.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 # minio/pvol/NL/HRW/2016/08/31/NLHRW_pvol_20160831T2350_6356.h5
 dts <- dplyr::select(vp_mtr_cum50, odim_code, moment)
 
@@ -91,10 +93,14 @@ dts_hrw <- dts %>%
   filter(odim_code == "nlhrw") %>%
   pull(moment)
 
-filepaths_hrw <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
-                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5")
-filepaths_hrw_alt <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
-                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5")
+filepaths_hrw <- paste0(
+  "minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+  "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5"
+)
+filepaths_hrw_alt <- paste0(
+  "minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+  "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5"
+)
 paths <- list(paste0("mc cp ", filepaths_hrw, " ."), paste0("mc cp ", filepaths_hrw_alt, " ."))
 
 write_lines(unlist(paths), file = "data/pvol/hrw_files.sh", )
@@ -103,16 +109,20 @@ dts_dhl <- dts %>%
   filter(odim_code == "nldhl") %>%
   pull(moment)
 
-filepaths_dhl <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
-                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5")
-filepaths_dhl_alt <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
-                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5")
+filepaths_dhl <- paste0(
+  "minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+  "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5"
+)
+filepaths_dhl_alt <- paste0(
+  "minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+  "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5"
+)
 paths <- list(paste0("mc cp ", filepaths_dhl, " ."), paste0("mc cp ", filepaths_dhl_alt, " ."))
 
 write_lines(unlist(paths), file = "data/pvol/dhl_files.sh", )
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 downloaded_files <- list.files("data/pvol", full.names = TRUE)
 downloaded_files <- downloaded_files[!downloaded_files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
 downloaded_files_hrw <- downloaded_files[str_detect(downloaded_files, "NLHRW")]
@@ -130,14 +140,15 @@ downloaded_dts_hrw$odim_code <- "nlhrw"
 downloaded_dts <- bind_rows(downloaded_dts_dhl, downloaded_dts_hrw)
 
 vp_mtr_cum50 %>%
-  left_join(downloaded_dts, by = join_by(odim_code == odim_code, moment == moment)) -> vp_mtr_cum50
+  left_join(downloaded_dts, by = join_by(odim_code == odim_code, moment == moment)) %>%
+  drop_na() -> vp_mtr_cum50
 ```
 
 # Process RBCs
-This is done following the `pipeline.R` function.
+The pipeline used to convert the polar volume scans to range-bias corrected PPIs that we can incorporate in our bird migration maps, is self-contained in the `rbc_preprocessing.R` file.
 
 # RBC Selection
-Blablabla
+After processing the RBCs, there is a folder `data/rbc_png/full` that contains .png's with several diagnostic plots of the processed RBCs. These have to be manually screened for clutter from rain and anomalous propagation and files should be moved to the subfolders `Accepted` if the scans are clean examples of bird migration and `Rejected` if they aren't.
 
 # Selected usable scans
 
@@ -162,6 +173,7 @@ classified_moments <- bind_rows(accepted, rejected)
 vp_mtr_cum50 %>%
   left_join(classified_moments, by = join_by(odim_code, moment)) %>%
   mutate(status = replace_na(status, "Rejected")) %>%
+  drop_na() %>%
   identity() -> vp_mtr_cum50_cl
 ```
 
