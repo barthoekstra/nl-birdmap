@@ -129,9 +129,11 @@ downloaded_files_hrw <- downloaded_files[str_detect(downloaded_files, "NLHRW")]
 downloaded_files_dhl <- downloaded_files[str_detect(downloaded_files, "NLDHL")]
 
 downloaded_files_dhl_dts <- as_datetime(unlist(
-  lapply(downloaded_files_dhl, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))))
+  lapply(downloaded_files_dhl, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))
+))
 downloaded_files_hrw_dts <- as_datetime(unlist(
-  lapply(downloaded_files_hrw, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))))
+  lapply(downloaded_files_hrw, function(x) parse_date_time(str_split(x, "_")[[1]][3], "YmdHM"))
+))
 
 downloaded_dts_dhl <- data.frame(pvolfile = downloaded_files_dhl, moment = downloaded_files_dhl_dts)
 downloaded_dts_dhl$odim_code <- "nldhl"
@@ -187,10 +189,12 @@ vp_mtr_cum50_cl %>%
   filter(status == "Accepted") %>%
   group_by(year, season, odim_code, day_night) %>%
   summarise(total_prop = sum(prop)) %>%
-  mutate(season_date = case_when(
-    season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
-    season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
-    TRUE ~ NA_Date_),
+  mutate(
+    season_date = case_when(
+      season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
+      season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
+      TRUE ~ NA_Date_
+    ),
     radar_nice = case_when(
       odim_code == "nlhrw" ~ "Herwijnen",
       odim_code == "nldhl" ~ "Den Helder"
@@ -202,24 +206,29 @@ vp_mtr_cum50_cl %>%
     day_night_nice = case_when(
       day_night == "day" ~ "Day",
       day_night == "night" ~ "Night"
-    )) %>%
+    )
+  ) %>%
   ungroup() %>%
-  identity()-> sp
+  identity() -> sp
 
 sp %>%
   group_by(odim_code, radar_nice) %>%
-  summarise(mean_prop = mean(total_prop),
-            min_prop = min(total_prop),
-            max_prop = max(total_prop)) %>%
+  summarise(
+    mean_prop = mean(total_prop),
+    min_prop = min(total_prop),
+    max_prop = max(total_prop)
+  ) %>%
   ungroup() -> sp_summary
 
 sp_summary
 
 sp %>%
   group_by(season) %>%
-  summarise(mean_prop = mean(total_prop),
-            min_prop = min(total_prop),
-            max_prop = max(total_prop)) %>%
+  summarise(
+    mean_prop = mean(total_prop),
+    min_prop = min(total_prop),
+    max_prop = max(total_prop)
+  ) %>%
   ungroup() -> sp_summary_seasonal
 
 sp_summary_seasonal
@@ -235,7 +244,7 @@ sp %>%
   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
   facet_wrap(vars(radar_nice)) +
   xlab("Season") +
-  ylab("% of migration mapped") + 
+  ylab("% of migration mapped") +
   labs(title = "Seasonal proportion of migration included in map", color = "% of migration")
 
 ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
