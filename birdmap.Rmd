@@ -254,13 +254,16 @@ ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
 # Process scans to stacks
 
 ```{r}
-stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_max = 2500, mean_method = "pixels", overwrite = FALSE) {
+stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", overwrite = FALSE) {
   # See if files exist already
-  daytime <- if_else(daytime == "night", "night", "day")
-  filepath <- paste0("data/stacks/",
-                     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS")
-  rasterpath <- paste0("data/stacks/",
-                       str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif")
+  filepath <- paste0(
+    "data/stacks/",
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS"
+  )
+  rasterpath <- paste0(
+    "data/stacks/",
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif"
+  )
 
   if (file.exists(filepath) && file.exists(rasterpath)) {
     if (!overwrite) {
@@ -270,32 +273,20 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_ma
 
   r <- rbcs[[1]]
   rp <- r
-  cs <- rbcs[[1]]$data@data$VIR
-  cs <- cs * 0
-  cp <- cs
-  zeros <- cs
 
   VIRs <- list()
-  css <- list()
-  cps <- list()
 
-  for(i in seq_along(rbcs)) {
+
+  for (i in seq_along(rbcs)) {
     VIR <- rbcs[[i]]$data@data$VIR
     RAIN <- rbcs[[i]]$data@data$rain
     VIR[which(VIR > threshold_max)] <- NA
     VIR[which(VIR == 0)] <- NA
     VIR[which(RAIN > 0)] <- NA
-    cs <- cs + 1 - (is.na(VIR) * 1)
-    cp <- (1 * props[i]) - (is.na(VIR) * 1 * props[i])
     VIRs <- append(VIRs, list(VIR))
-    css <- append(css, list(cs))
-    cps <- append(cps, list(cp))
   }
 
   mVIR <- do.call(rbind, VIRs)
-  mCSS <- do.call(rbind, css)
-  mCPS <- do.call(rbind, cps)
-
   mVIR[is.na(mVIR)] <- 0
   VIR_summed <- mVIR[1, ] * 0
 
@@ -305,18 +296,8 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_ma
       rp$data@data[paste0("VIR_", j)] <- VIR_summed
       next
     }
-    
-    if (mean_method == "scans") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / j
-    } else if (mean_method == "pixels") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / css[[j]]
-    } else if (mean_method == "weighted") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]) * as.matrix(mCPS[1:j, ])) / colSums(as.matrix(mCPS[1:j, ]))
-    } else if (mean_method == "weighted_scans") {
-      VIR_summed <- colSums(sweep(as.matrix(mVIR[1:j, ]), MARGIN = 1, props[1:j], `*`)) / sum(props[1:j])
-    } else if (mean_method == "none") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]))
-    }
+
+    VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / j
     rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed)
   }
 
@@ -324,13 +305,12 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_ma
   for (var in remove_variables) {
     rp$data@data[var] <- NULL
   }
-  rp$data$css <- as.vector(css[[length(css)]])
   rp$data$VIR <- as.vector(as.matrix(rp$data@data[paste0("VIR_", length(VIRs))]))
 
   rp <- calculate_param(rp, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
   saveRDS(rp, filepath)
   rrast <- terra::rast(rp$data)
-  fixedlayers <- c("VIR", "css", "cps", "VIR_log10", "VIR_log", "VIR_sqrt")
+  fixedlayers <- c("VIR", "VIR_log10", "VIR_log", "VIR_sqrt")
   layernames <- names(rrast)
   layerorder <- c(which(layernames %in% fixedlayers), which(!layernames %in% fixedlayers))
   rrast <- subset(rrast, layerorder)
