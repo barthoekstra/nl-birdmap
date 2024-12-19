@@ -95,6 +95,10 @@ data/plots/*
 data/stacks/*
 !data/stacks/.gitkeep
 
+!data/final_stacks
+data/final_stacks/*
+!data/final_stacks/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
