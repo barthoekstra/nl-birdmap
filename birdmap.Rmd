@@ -367,7 +367,6 @@ final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
                             daytime = c("night"),
                             th = 2500,
                             mm = c("scans"),
-                            sp = c(TRUE, FALSE),
                             R_threshold = 10)
 
 for (i in 1:nrow(final_stacks)) {
