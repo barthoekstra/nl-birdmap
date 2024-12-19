@@ -267,7 +267,7 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
   } else {
     R_text <- R_threshold
   }
-  
+
   filepath <- paste0(
     "data/stacks/",
     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".RDS"
@@ -296,7 +296,7 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
     VIR[which(VIR == 0)] <- NA
     VIR[which(RAIN > 0)] <- NA
     if (!is.null(R_threshold)) {
-      VIR[which(R_threshold > 10)] <- NA 
+      VIR[which(R_threshold > 10)] <- NA
     }
     VIRs <- append(VIRs, list(VIR))
   }
@@ -333,34 +333,43 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
   return(filepath)
 }
 
-g <- expand.grid(year_season = unique(vp_mtr_cum50_cl$year_season),
-                 day_night = unique(vp_mtr_cum50_cl$day_night),
-                 odim_code = unique(vp_mtr_cum50_cl$odim_code))
+g <- expand.grid(
+  year_season = unique(vp_mtr_cum50_cl$year_season),
+  day_night = unique(vp_mtr_cum50_cl$day_night),
+  odim_code = unique(vp_mtr_cum50_cl$odim_code)
+)
 
 generate_stacks <- function(year_season, day_night, odim_code,
                             # th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
                             th = 2500,
                             R_threshold = 10,
                             overwrite = FALSE) {
-  
   vp_mtr_cum50_cl %>%
     filter(status == "Accepted", year_season == !!year_season, day_night == !!day_night, odim_code == !!odim_code) %>%
     drop_na() %>%
     arrange(top) %>%
     dplyr::select(rbcfile, prop) -> files
-  
-  if (nrow(files) == 0) return("files do not exist")
-  
+
+  if (nrow(files) == 0) {
+    return("files do not exist")
+  }
+
   gr <- expand.grid(th = th, R_threshold = R_threshold, stringsAsFactors = FALSE)
   gr <- asplit(gr, 1)
-  
+
   rbcs <- lapply(files$rbcfile, readRDS)
-  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, props = files$prop, year_season = year_season, odimcode = odim_code, 
-                                     threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite)})
+  lapply(gr, function(x) {
+    stack_rbcs(
+      rbcs = rbcs, props = files$prop, year_season = year_season, odimcode = odim_code,
+      threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite
+    )
+  })
 }
 
-processing_stacking <- pbmcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code,
-                                overwrite = TRUE, mc.cores = 6, mc.preschedule = FALSE)
+processing_stacking <- pbmcmapply(generate_stacks,
+  year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code,
+  overwrite = TRUE, mc.cores = 6, mc.preschedule = FALSE
+)
 saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
 
@@ -368,33 +377,38 @@ saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys
 Now we can continue simply creating averages of the season-year stacks, resulting in rasters of average `VIR` per season per radar. We also limit the domain of the stacks to 100km from the radar now.
 
 ```{r}
-final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
-                            season = c("spring", "autumn"),
-                            daytime = c("night"),
-                            th = 2500,
-                            mm = c("scans"),
-                            R_threshold = 10)
+final_stacks <- expand.grid(
+  odim_code = c("NLHRW", "NLDHL"),
+  season = c("spring", "autumn"),
+  daytime = c("night"),
+  th = 2500,
+  mm = c("scans"),
+  R_threshold = 10
+)
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
-  
+
   rastfiles <- Sys.glob(
     paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   )
-  
+
   stk <- terra::rast(lapply(rastfiles, function(x) {
-    tryCatch(terra::rast(x, lyrs = "VIR"), 
-             error = function(err) {
-               print(err)
-             })
+    tryCatch(terra::rast(x, lyrs = "VIR"),
+      error = function(err) {
+        print(err)
+      }
+    )
   }))
   rmean <- app(stk, mean)
   names(rmean) <- "vir_mean"
-  
-  file_out <- paste0("data/final_stacks/", fs$daytime, "/", fs$mm, "/", 
-                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
+
+  file_out <- paste0(
+    "data/final_stacks/", fs$daytime, "/", fs$mm, "/",
+    fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif"
+  )
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
-  
+
   if (fs$odim_code == "NLHRW") {
     lat <- 51.8371
     lon <- 5.138
@@ -403,284 +417,164 @@ for (i in 1:nrow(final_stacks)) {
     lat <- 52.9528
     lon <- 4.79061
   }
-  
-  circle_radius <- 100000  # 100 km in meters
+
+  circle_radius <- 100000 # 100 km in meters
 
   # Create a simple features (sf) point object
   center_point <- st_sfc(st_point(c(lon, lat)))
-  
+
   # Buffer the point to create a circular polygon
   st_crs(center_point) <- 4326
   center_point <- st_transform(center_point, crs = st_crs(rmean))
   circle <- st_buffer(center_point, dist = circle_radius)
-  # mask(x = raster_data, mask = circle)  
+  # mask(x = raster_data, mask = circle)
   masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(rmean, values = NA_real_), nx = 640, ny = 640))
   masked_raster[masked_raster == 0] <- NA
-  
+
   raster_masked <- terra::mask(rmean, as(masked_raster, "SpatRaster"))
-  
+
   writeRaster(raster_masked, file_out, overwrite = TRUE)
 }
 ```
 
 # Combine radar, time stacks to national-level maps
 
+We can now combine the radar-level seasonal averages to national-level maps per season. In the overlap zone between both radars, we use max-compositing as this provides the smoothest transition in average `VIR` values between the radars.
+
 ```{r}
-final_stacks <- expand.grid(season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
-                            th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted_scans", "weighted", "none"),
-                            zmax = c(500, 600, 700, 800, 900, 1000, 1500, 2000),
-                            sp = c("seasons_standardized", "seasons_nonstandardized"))
+final_stacks <- expand.grid(
+  season = c("spring", "autumn"),
+  daytime = c("night"),
+  th = c(2500),
+  mm = c("scans"),
+  zmax = c(750),
+  R_threshold = 10
+)
 
 fstacks <- asplit(final_stacks, 1)
-  
-save_map <- function(x, overwrite = FALSE) {
+
+save_map <- function(x, overwrite = FALSE, mode = "dark") {
   fs <- x
-  
-  if (fs["mm"] == "none" & fs["sp"] == "seasons_standardized") return("skipped")
-  
-  fstacks <- paste0("data/final_stacks/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_", 
-                    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["sp"], ".tif")
+
+  fstacks <- paste0(
+    "data/final_stacks/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_",
+    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["R_threshold"], ".tif"
+  )
   fstacks <- str_replace_all(fstacks, " ", "")
-  mapfile <- paste0("data/maps/", fs["daytime"], "/", fs["mm"], 
-                    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["sp"], ".tif")
+  mapfile <- paste0(
+    "data/maps/", fs["daytime"], "/", fs["mm"],
+    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".tif"
+  )
   mapfile <- str_replace_all(mapfile, " ", "")
-  
-  if(file.exists(mapfile) & !overwrite) return(mapfile)
-  
-  if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
-  
-  if (fs["mm"] == "weighted") {
-    fsmm <- "weighted_pixels"
-  } else {
-    fsmm <- fs["mm"]
+
+  if (file.exists(mapfile) & !overwrite) {
+    return(mapfile)
   }
-  mapfile_plot <- paste0("data/maps_plots_borderless_transparent/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_",
-                         fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".png")
-  # mapfile_plot <- paste0("data/maps_plots_borderless_transparent_temp/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
-  #                        fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".pdf")
+
+  if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
+
+  mapfile_plot <- paste0(
+    "data/maps_plots/VIR_", fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_",
+    fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".png"
+  )
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
   if (!dir.exists(dirname(mapfile_plot))) dir.create(dirname(mapfile_plot), recursive = TRUE)
-  
+
   r1 <- rast(fstacks[1]) %>% project("EPSG:28992")
   r2 <- rast(fstacks[2]) %>% project("EPSG:28992")
-  
+
   bbox1 <- ext(r1)
   bbox2 <- ext(r2)
-  
+
   combined_bbox <- c(min(bbox1$xmin, bbox2$xmin), max(bbox1$xmax, bbox2$xmax), min(bbox1$ymin, bbox2$ymin), max(bbox1$ymax, bbox2$ymax))
-  
+
   rn <- rast(ext = combined_bbox, crs = "EPSG:28992")
   res(rn) <- 500
-  
+
   r1_resampled <- resample(r1, rn)
   r2_resampled <- resample(r2, rn)
-  
+
   m <- mosaic(sprc(r1_resampled, r2_resampled), fun = max)
   writeRaster(m, mapfile, overwrite = TRUE)
-  
+
   data <- raster::as.data.frame(m, xy = TRUE)
-  
+
   c <- crs(m)
   nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
   nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
   nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
   radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
-  
+
   radar_bbox <- st_bbox(radar_buf)
-  
+
   padding <- 500
-  # xlim <- c(min(data$x), max(data$x))
   xlim <- c(radar_bbox$xmin - padding, radar_bbox$xmax + padding)
-  # ylim <- c(min(data$y), max(data$y))
   ylim <- c(radar_bbox$ymin - padding, radar_bbox$ymax + padding)
-  zlim <- c(0, quantile(data$mean, 0.95))
   zlim <- c(0, as.numeric(fs["zmax"]))
-  season <- if_else(fs["daytime"] == "night", "by Night", "by Day")
-  title <- paste0(str_to_sentence(fs["season"]), " ", season)
-  subtitle <- paste0("Noise threshold: ", fs["th"], " / Stacking method: ", fsmm)
-  
-  ggplot(data) +
-    geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
-    scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
-    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
-    #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
-    #geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
-    geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
-    # geom_sf(data = radar_buf, fill = "NA", color = alpha("#ffffff", 0.5), linewidth = .3) +
-    coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
-    # ggtitle(title, subtitle) +
-    ggtitle(title) +
-    dark_theme_minimal() +
-    theme(axis.title.x = element_blank(),
-          axis.title.y = element_blank(),
-          plot.title = element_text(size = 14),
-          plot.subtitle = element_text(size = 10),
-          # axis.text.x = element_text(color = "white"),
-          # axis.text.y = element_text(color = "white"),
-          axis.text = element_text(color = alpha("white", 0.25)),
-          panel.grid.major = element_line(color = alpha("white", 0.1)),
-          panel.grid.minor = element_line(color = "white"),
-          plot.title.position = "plot",
-          #plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
-          # plot.background = element_rect(color = "NA", fill = "NA"),
-          legend.position = c(1.02, 0.66),
-          plot.margin = unit(c(1,1,1,1), "cm")) -> pl1
-  
+  tod <- if_else(fs["daytime"] == "night", "by Night", "by Day")
+  title <- paste0(str_to_sentence(fs["season"]), " ", tod)
+
+  if (mode == "dark") {
+    ggplot(data) +
+      geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
+      scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVID", oob = scales::squish, option = "inferno") +
+      geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
+      geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
+      coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
+      ggtitle(title) +
+      dark_theme_minimal() +
+      theme(
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        axis.text = element_text(color = alpha("white", 0.25)),
+        panel.grid.major = element_line(color = alpha("white", 0.1)),
+        panel.grid.minor = element_line(color = "white"),
+        plot.title.position = "plot",
+        legend.position = c(1.02, 0.66),
+        plot.margin = unit(c(1, 1, 1, 1), "cm")
+      ) -> pl1
+  } else if (mode == "light") {
+    ggplot(data) +
+      geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
+      scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVID", oob = scales::squish, option = "inferno") +
+      geom_sf(data = nl, fill = "NA", color = "black", linewidth = .3) +
+      geom_sf(data = radar_buf, fill = "NA", color = "#000000aa", linewidth = .3) +
+      coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
+      ggtitle(title) +
+      theme(
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 10),
+        axis.text = element_text(color = alpha("black", 0.25)),
+        panel.grid.major = element_line(color = alpha("black", 0.1)),
+        panel.grid.minor = element_line(color = "black"),
+        plot.title.position = "plot",
+        legend.position = c(1.02, 0.66),
+        legend.background = element_rect(fill = "#00000000"),
+        plot.margin = unit(c(1, 1, 1, 1), "cm")
+      ) -> pl1
+  }
+
   ggsave(mapfile_plot, plot = pl1, width = 5, height = 6)
 }
 
-processing <- mclapply(fstacks, save_map, overwrite = TRUE, mc.cores = 10, mc.preschedule = FALSE)
-# processing <- lapply(fstacks, save_map, overwrite = TRUE)
+processing <- mclapply(fstacks, save_map, overwrite = TRUE, mode = "light", mc.cores = 10, mc.preschedule = FALSE)
 
 saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
 
-# Visualisations
-
-```{r, fig.width=6, fig.height=5}
-mask_raster <- function(r, odimcode) {
-  if (odimcode == "NLHRW") {
-    lat <- 51.8371
-    lon <- 5.138
-  }
-  if (odimcode == "NLDHL") {
-    lat <- 52.9528
-    lon <- 4.79061
-  }
-  
-  circle_radius <- 100000  # 100 km in meters
-  
-  # Create a simple features (sf) point object
-  center_point <- st_sfc(st_point(c(lon, lat)))
-  
-  # Buffer the point to create a circular polygon
-  st_crs(center_point) <- 4326
-  center_point <- st_transform(center_point, crs = st_crs(r))
-  circle <- st_buffer(center_point, dist = circle_radius)
-  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(r, values = NA_real_), nx = 640, ny = 640))
-  masked_raster[masked_raster == 0] <- NA
-  
-  raster_masked <- terra::mask(r, as(masked_raster, "SpatRaster"))
-  return(raster_masked)
-}
-
-odimcode <- "NLHRW"
-r <- rast("data/stacks/NLHRW_2022_autumn_thresh_5000_avg_weighted_scans_day.tif") %>% mask_raster(odimcode)
-c <- crs(r)
-nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
-if (odimcode == "NLHRW") {
-  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c) %>% filter(fid == 2)  
-} else {
-  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c) %>% filter(fid == 1)
-}
-radar_bbox <- st_bbox(radar_buf)
-
-
-r %>%
-  as.data.frame(xy = TRUE) %>%
-  dplyr::select(x, y, starts_with("VIR_"), -c(VIR_log10, VIR_log, VIR_sqrt)) %>%
-  pivot_longer(cols = starts_with("VIR_"), names_to = "scan", values_to = "VIR") %>%
-  mutate(scan = str_replace(scan, "VIR_", ""),
-         VIR = replace_na(VIR, 0)) %>%
-  identity() -> rdf
-
-for (sc in unique(rdf$scan)) {
-  rdf %>%
-    filter(scan == sc) -> rd
-  
-  ggplot() +
-    geom_tile(data = rd, aes(x = x, y = y, fill = VIR)) +
-    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
-    geom_sf(data = st_difference(nl, radar_buf), fill = alpha("black", .99), color = alpha("black", .5), linewidth = 4) +
-    geom_sf(data = radar_buf, color = "white", fill = "NA", linewidth = .3) +
-    coord_sf(xlim = c(radar_bbox$xmin, radar_bbox$xmax), ylim = c(radar_bbox$ymin, radar_bbox$ymax + 40000)) +
-    scale_fill_viridis_c(option = "inferno", limits = c(0, 1000), oob = scales::squish) +
-    dark_theme_minimal() +
-    theme(axis.title.x = element_blank(),
-          axis.title.y = element_blank(),
-          plot.background = element_rect(color = "black", fill = "black", size = 6),
-          # legend.position = "bottom",
-          legend.position = c(0.9, 0.1),
-          legend.title = element_text(vjust = 0.1)) +
-    annotate("text", x = min(rd$x), y = max(rd$y) + 40000, label = "Autumn 2022", hjust = 0, size = 6) +
-    annotate("text", x = min(rd$x), y = max(rd$y) + 25000, label = "by night", hjust = 0, size = 5) +
-    annotate("text", x = max(rd$x), y = max(rd$y) + 40000, label = "Scans in stack", hjust = 1, size = 6) +
-    annotate("text", x = max(rd$x) + 2500, y = max(rd$y) + 20000, label = paste0(sc), hjust = 1, size = 12) +
-    guides(fill = guide_colorbar(title.position = "left"))
-  
-  ggsave(paste0("data/stacks_gifs/NLHRW_2022_", sc, ".png"), width = 6, height = 7)
-}
-# ffmpeg -framerate 1 -pattern_type glob -i '*.png' -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
-```
-
-```{r}
-# vp_mtr_cum50_cl %>%
-#   filter(status == "Accepted") %>%
-#   group_by(year, season, odim_code, day_night) %>%
-#   summarise(total_prop = sum(prop)) %>%
-#   mutate(season_date = case_when(
-#     season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
-#     season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
-#     TRUE ~ NA_Date_)) -> sp
-
-vp_mtr_cum50_cl %>%
-  filter(status == "Accepted") %>%
-  group_by(year, season, odim_code, day_night) %>%
-  summarise(total_prop = sum(prop)) %>%
-  mutate(season_date = case_when(
-    season == "spring" ~ as.Date(paste(year, "03-15", sep = "-")),
-    season == "autumn" ~ as.Date(paste(year, "09-15", sep = "-")),
-    TRUE ~ NA_Date_),
-    odim_code = case_when(
-      odim_code == "nlhrw" ~ "Herwijnen",
-      odim_code == "nldhl" ~ "Den Helder"
-    ),
-    day_night = case_when(
-      day_night == "daylight" ~ "Day",
-      day_night == "night" ~ "Night"
-    )) -> sp
-
-sp
-
-sp %>%
-  group_by(odim_code, day_night) %>%
-  summarise(mean_prop = mean(total_prop)) -> sp_means
-
-sp_means
-```
-
-
-
-```{r}
-# Define the moon and sun symbols using Unicode
-ggplot(sp) +
-  geom_point(aes(x = season_date, y = total_prop, color = day_night, shape = day_night, fill = day_night), size = 3) +
-  dark_theme_gray(base_size = 14) +
-  geom_hline(data = sp_means, aes(yintercept = mean_prop, color = day_night), linetype = "dashed") +
-  scale_color_manual(values = c("yellow", "white")) +
-  scale_fill_manual(values = c("yellow", "white")) +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  scale_y_continuous(labels = scales::label_percent()) +
-  scale_shape_manual(values = c(24, 25)) +
-  facet_wrap(vars(odim_code)) +
-  xlab("Season") +
-  ylab("% of migration mapped") + 
-  labs(title = "Seasonal proportion of migration included in map", 
-       # subtitle = "After removal of unsuitable scans",
-       color = "Time of day", shape = "Time of day", fill = "Time of day") +
-  theme(plot.background = element_rect(color = "black", fill = "black", size = 6))
-
-ggsave("seasonal_props.pdf", width = 10, height = 6)
-```
-
 # Clutter map creation
+Now for the clutter map creation, we follow exactly the same approach up to now, but rather than looking at the migration peaks, we select the scans which supposedly have the least migration.
+
+We start with selecting the lowest 25 scans in terms of nightly migration for each season.
 
 ```{r}
 vp_mtr %>%
   group_by(year_season, odim_code, day_night) %>%
-  filter(top >= tail(top, 25)[1]) %>%
+  filter(top >= tail(top, 25)[1]) %>% 
   identity() -> vp_mtr_low
 
 scantimes <- as_datetime(unlist(apply(vp_mtr_low, MARGIN = 1, FUN = calculate_scantime, simplify = FALSE)))
@@ -688,6 +582,7 @@ scantimes <- as_datetime(unlist(apply(vp_mtr_low, MARGIN = 1, FUN = calculate_sc
 vp_mtr_low$moment <- scantimes
 vp_mtr_low
 ```
+We download the corresponding polar volume files.
 
 ```{r}
 dts <- dplyr::select(vp_mtr_low, odim_code, moment)
@@ -696,10 +591,14 @@ dts_hrw <- dts %>%
   filter(odim_code == "nlhrw") %>%
   pull(moment)
 
-filepaths_hrw <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
-                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5")
-filepaths_hrw_alt <- paste0("minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
-                        "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5")
+filepaths_hrw <- paste0(
+  "minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+  "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_6356.h5"
+)
+filepaths_hrw_alt <- paste0(
+  "minio/pvol/NL/HRW/", year(dts_hrw), "/", sprintf("%02d", month(dts_hrw)), "/", sprintf("%02d", day(dts_hrw)), "/",
+  "NLHRW_pvol_", format(dts_hrw, format = "%Y%m%dT%H%M"), "_NL52.h5"
+)
 paths <- list(paste0("mc cp ", filepaths_hrw, " ."), paste0("mc cp ", filepaths_hrw_alt, " ."))
 
 write_lines(unlist(paths), file = "data/pvol_clutter/hrw_files.sh", )
@@ -708,14 +607,20 @@ dts_dhl <- dts %>%
   filter(odim_code == "nldhl") %>%
   pull(moment)
 
-filepaths_dhl <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
-                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5")
-filepaths_dhl_alt <- paste0("minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
-                        "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5")
+filepaths_dhl <- paste0(
+  "minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+  "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_6234.h5"
+)
+filepaths_dhl_alt <- paste0(
+  "minio/pvol/NL/DHL/", year(dts_dhl), "/", sprintf("%02d", month(dts_dhl)), "/", sprintf("%02d", day(dts_dhl)), "/",
+  "NLDHL_pvol_", format(dts_dhl, format = "%Y%m%dT%H%M"), "_NL51.h5"
+)
 paths <- list(paste0("mc cp ", filepaths_dhl, " ."), paste0("mc cp ", filepaths_dhl_alt, " ."))
 
 write_lines(unlist(paths), file = "data/pvol_clutter/dhl_files.sh", )
 ```
+
+And we process the files following the procedure in `rbc_preprocessing.R`.
 
 ```{r}
 accepted_files <- list.files("data/rbc_png_clutter/full/Accepted/")
