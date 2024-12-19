@@ -364,30 +364,18 @@ saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys
 ```{r}
 final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
                             season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
-                            th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted_scans", "weighted", "none"),
-                            sp = c(TRUE, FALSE))
+                            daytime = c("night"),
+                            th = 2500,
+                            mm = c("scans"),
+                            sp = c(TRUE, FALSE),
+                            R_threshold = 10)
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
   
   rastfiles <- Sys.glob(
-    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, ".tif")
+    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   )
-  
-  if (fs$sp) {
-    props <- sp %>% 
-      filter(season == fs$season, str_to_upper(odim_code) == fs$odim_code, day_night == fs$daytime) %>% 
-      arrange(year) %>% 
-      pull(total_prop)
-  }
-  
-  if (fs$mm == "none") {
-    names_layers <- names(terra::rast(rastfiles))
-    names_layers <- names_layers[!names_layers %in% c("css", "VIR", "VIR_log10", "VIR_log", "VIR_sqrt")]
-    n_layers <- length(names_layers)
-  }
   
   stk <- terra::rast(lapply(rastfiles, function(x) {
     tryCatch(terra::rast(x, lyrs = "VIR"), 
@@ -395,28 +383,11 @@ for (i in 1:nrow(final_stacks)) {
                print(err)
              })
   }))
-  
-  if (fs$mm != "none") {
-    if (fs$sp) {
-      rmean <- weighted.mean(stk, props, na.rm = TRUE)
-    } else {
-      rmean <- app(stk, mean)
-    }
-  } else {
-    if (fs$sp) {
-      next
-    } else {
-      layer_mean <- function(i) sum(i) / n_layers
-      rmean <- app(stk, layer_mean) 
-    }
-  }
-  
+  rmean <- app(stk, mean)
   names(rmean) <- "vir_mean"
   
-  stdseason <- if_else(fs$sp, "seasons_standardized", "seasons_nonstandardized")
-  
   file_out <- paste0("data/final_stacks/", fs$daytime, "/", fs$mm, "/", 
-                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", stdseason, ".tif")
+                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
   
   if (fs$odim_code == "NLHRW") {
