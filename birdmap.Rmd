@@ -240,7 +240,7 @@ sp %>%
   mutate(total_prop = total_prop * 100) %>%
   ggplot() +
   geom_point(aes(x = season_date, y = total_prop, color = total_prop)) +
-  geom_hline(data = sp_means, aes(yintercept = mean_prop * 100), linetype = "dashed", color = "black") +
+  geom_hline(data = sp_summary, aes(yintercept = mean_prop * 100), linetype = "dashed", color = "black") +
   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
   facet_wrap(vars(radar_nice)) +
   xlab("Season") +
