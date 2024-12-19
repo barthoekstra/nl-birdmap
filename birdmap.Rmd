@@ -2,7 +2,7 @@
 title: "Netherlands Bird Migration Map"
 subtitle: "Based on weather radar measurements"
 author: Bart Hoekstra
-output: html_notebook
+#output: html_notebook
 ---
 
 ```{r setup, message=FALSE, warning=TRUE, include=FALSE}
