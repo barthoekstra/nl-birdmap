@@ -91,6 +91,10 @@ data/rbc_png_clutter/full/Accepted/*
 data/plots/*
 !data/plots/.gitkeep
 
+!data/stacks
+data/stacks/*
+!data/stacks/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
