@@ -251,8 +251,13 @@ sp %>%
 ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
 ```
 
+# Process scans to season-year stacks
+With all RBCs processed and all clean migration moments gathered, we can create stacks of season-year combinations (e.g. autumn 2017, autumn 2018, spring 2019, spring 2021). We store all the individual RBCs' VIR parameters as individual layers and average them to a layer called `VIR` (and some transformations like `VIR_sqrt` and `VIR_log10`. While creating the stacks, we filter out areas where the RBC matches the following conditions:
 
-# Process scans to stacks
+1. `VIR` is above `2500`
+2. `VIR` is exactly `0` (the pixel has never reflected)
+3. There is rain in one of the elevation scans above the pixel
+4. The adjustment factor `R` is above `10`.
 
 ```{r}
 stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", R_threshold = NULL, overwrite = FALSE) {
@@ -360,6 +365,7 @@ saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys
 ```
 
 # Combine season stacks to radar, period stacks
+Now we can continue simply creating averages of the season-year stacks, resulting in rasters of average `VIR` per season per radar. We also limit the domain of the stacks to 100km from the radar now.
 
 ```{r}
 final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
