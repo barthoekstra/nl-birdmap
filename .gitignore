@@ -103,6 +103,10 @@ data/final_stacks/*
 data/maps/*
 !data/maps/.gitkeep
 
+!data/maps_plots
+data/maps_plots/*
+!data/maps_plots/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
