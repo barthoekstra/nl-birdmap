@@ -25,6 +25,7 @@ library(ggspatial)
 library(ggpattern)
 library(ggfx)
 library(gghalves)
+library(pbmcapply)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
@@ -254,15 +255,21 @@ ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
 # Process scans to stacks
 
 ```{r}
-stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", overwrite = FALSE) {
+stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", R_threshold = NULL, overwrite = FALSE) {
   # See if files exist already
+  if (is.null(R_threshold)) {
+    R_text <- "null"
+  } else {
+    R_text <- R_threshold
+  }
+  
   filepath <- paste0(
     "data/stacks/",
-    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS"
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".RDS"
   )
   rasterpath <- paste0(
     "data/stacks/",
-    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif"
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".tif"
   )
 
   if (file.exists(filepath) && file.exists(rasterpath)) {
@@ -276,13 +283,16 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
 
   VIRs <- list()
 
-
   for (i in seq_along(rbcs)) {
     VIR <- rbcs[[i]]$data@data$VIR
+    R <- rbcs[[i]]$data@data$R
     RAIN <- rbcs[[i]]$data@data$rain
     VIR[which(VIR > threshold_max)] <- NA
     VIR[which(VIR == 0)] <- NA
     VIR[which(RAIN > 0)] <- NA
+    if (!is.null(R_threshold)) {
+      VIR[which(R_threshold > 10)] <- NA 
+    }
     VIRs <- append(VIRs, list(VIR))
   }
 
@@ -314,7 +324,8 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
   layernames <- names(rrast)
   layerorder <- c(which(layernames %in% fixedlayers), which(!layernames %in% fixedlayers))
   rrast <- subset(rrast, layerorder)
-  terra::writeRaster(rrast, rasterpath, overwrite = overwrite)
+  rf <- terra::writeRaster(rrast, rasterpath, overwrite = overwrite)
+  return(filepath)
 }
 
 g <- expand.grid(year_season = unique(vp_mtr_cum50_cl$year_season),
@@ -322,8 +333,9 @@ g <- expand.grid(year_season = unique(vp_mtr_cum50_cl$year_season),
                  odim_code = unique(vp_mtr_cum50_cl$odim_code))
 
 generate_stacks <- function(year_season, day_night, odim_code,
-                            th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            mm = c("pixels", "scans", "weighted", "weighted_scans", "none"),
+                            # th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
+                            th = 2500,
+                            R_threshold = 10,
                             overwrite = FALSE) {
   
   vp_mtr_cum50_cl %>%
@@ -334,17 +346,16 @@ generate_stacks <- function(year_season, day_night, odim_code,
   
   if (nrow(files) == 0) return("files do not exist")
   
-  gr <- expand.grid(th = th, mm = mm, stringsAsFactors = FALSE)
+  gr <- expand.grid(th = th, R_threshold = R_threshold, stringsAsFactors = FALSE)
   gr <- asplit(gr, 1)
   
   rbcs <- lapply(files$rbcfile, readRDS)
-  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, props = files$prop, year_season = year_season, daytime = day_night, odimcode = odim_code, 
-                                     threshold_max = as.numeric(x["th"]), mean_method = x["mm"], overwrite = overwrite)})
+  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, props = files$prop, year_season = year_season, odimcode = odim_code, 
+                                     threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite)})
 }
 
-processing_stacking <- mcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code,
-                                overwrite = FALSE, mc.cores = 6, mc.preschedule = FALSE)
-# processing_stacking <- mapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code)
+processing_stacking <- pbmcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code,
+                                overwrite = TRUE, mc.cores = 6, mc.preschedule = FALSE)
 saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
 
