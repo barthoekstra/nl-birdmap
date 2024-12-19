@@ -99,6 +99,10 @@ data/stacks/*
 data/final_stacks/*
 !data/final_stacks/.gitkeep
 
+!data/maps
+data/maps/*
+!data/maps/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
