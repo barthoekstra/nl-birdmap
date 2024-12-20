@@ -260,7 +260,8 @@ With all RBCs processed and all clean migration moments gathered, we can create 
 4. The adjustment factor `R` is above `10`.
 
 ```{r}
-stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", R_threshold = NULL, overwrite = FALSE) {
+stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", 
+                       R_threshold = NULL, overwrite = FALSE, clutter_map = FALSE) {
   # See if files exist already
   if (is.null(R_threshold)) {
     R_text <- "null"
@@ -268,12 +269,17 @@ stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime = "night", th
     R_text <- R_threshold
   }
 
+  basepath <- "data/stacks/"
+  if (clutter_map) {
+    basepath <- "data/stacks_clutter/"
+  }
+  
   filepath <- paste0(
-    "data/stacks/",
+    basepath,
     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".RDS"
   )
   rasterpath <- paste0(
-    "data/stacks/",
+    basepath,
     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".tif"
   )
 
