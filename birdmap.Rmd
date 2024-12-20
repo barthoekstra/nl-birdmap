@@ -366,7 +366,7 @@ generate_stacks <- function(year_season, day_night, odim_code,
   rbcs <- lapply(files$rbcfile, readRDS)
   lapply(gr, function(x) {
     stack_rbcs(
-      rbcs = rbcs, props = files$prop, year_season = year_season, odimcode = odim_code,
+      rbcs = rbcs, year_season = year_season, odimcode = odim_code,
       threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite
     )
   })
