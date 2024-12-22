@@ -29,7 +29,8 @@ library(pbmcapply)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
-# Select peak nights
+# Gathering data from peak nights
+## Identifying peak nights
 We start with loading a dataset containing cumulative passage metrics for day and night across Dutch weather radars, both seasons and all years.
 
 ```{r}
@@ -83,7 +84,7 @@ scantimes <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_
 vp_mtr_cum50$moment <- scantimes
 vp_mtr_cum50
 ```
-# Download peak time scans
+## Download peak time scans
 From the `moment` column in the `vp_mtr_cum50` dataframe, one can distill which pvol files have to be downloaded from the KNMI weather radar repository. At the UvA, we host those publicly available datasets locally on a private [minio](https://min.io) S3 server, but others can download the polar volume files from the KNMI directly: [Herwijnen](https://dataplatform.knmi.nl/dataset/radar-tar-vol-full-herwijnen-1-0) and [Den Helder](https://dataplatform.knmi.nl/dataset/radar-tar-volume-denhelder-1-0) after [registering](https://developer.dataplatform.knmi.nl) for a free API key.
 
 ```{r eval=FALSE, include=FALSE}
@@ -147,13 +148,13 @@ vp_mtr_cum50 %>%
   drop_na() -> vp_mtr_cum50
 ```
 
-# Process RBCs
+# Process RBCs for bird density maps
 The pipeline used to convert the polar volume scans to range-bias corrected PPIs that we can incorporate in our bird migration maps, is self-contained in the `rbc_preprocessing.R` file.
 
-# RBC selection
+## RBC selection
 After processing the RBCs, there is a folder `data/rbc_png/full` that contains .png's with several diagnostic plots of the processed RBCs. These have to be manually screened for clutter from rain and anomalous propagation and files should be moved to the subfolders `Accepted` if the scans are clean examples of bird migration and `Rejected` if they aren't.
 
-# Selected usable scans
+## Selected usable scans
 We now add the outcome of the screening procedure to the dataframe containing an overview of our data.
 
 ```{r}
@@ -181,7 +182,7 @@ vp_mtr_cum50 %>%
   identity() -> vp_mtr_cum50_cl
 ```
 
-# Seasonal proportion of migration covered
+## Seasonal proportion of migration covered
 
 Having screened the scans now, we can see what proportion of seasonal migration is captured in the clean scans.
 
@@ -251,7 +252,7 @@ sp %>%
 ggsave("data/plots/seasonal_props.pdf", width = 10, height = 6)
 ```
 
-# Process scans to season-year stacks
+## Process scans to season-year stacks
 With all RBCs processed and all clean migration moments gathered, we can create stacks of season-year combinations (e.g. autumn 2017, autumn 2018, spring 2019, spring 2021). We store all the individual RBCs' VIR parameters as individual layers and average them to a layer called `VIR` (and some transformations like `VIR_sqrt` and `VIR_log10`. While creating the stacks, we filter out areas where the RBC matches the following conditions:
 
 1. `VIR` is above `2500`
@@ -379,7 +380,7 @@ processing_stacking <- pbmcmapply(generate_stacks,
 saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
 
-# Combine season stacks to radar, period stacks
+## Combine season stacks to radar, period stacks
 Now we can continue simply creating averages of the season-year stacks, resulting in rasters of average `VIR` per season per radar. We also limit the domain of the stacks to 100km from the radar now.
 
 ```{r}
@@ -442,7 +443,7 @@ for (i in 1:nrow(final_stacks)) {
 }
 ```
 
-# Combine radar, time stacks to national-level maps
+## Combine radar, time stacks to national-level maps
 
 We can now combine the radar-level seasonal averages to national-level maps per season. In the overlap zone between both radars, we use max-compositing as this provides the smoothest transition in average `VIR` values between the radars.
 
@@ -752,7 +753,7 @@ for (i in 1:nrow(final_stacks)) {
 }
 ```
 
-And now we convert it into a national-level map of clutter contamination again
+And now we convert it into a national-level map of clutter contamination again.
 
 ```{r}
 final_stacks <- expand.grid(season = c("spring", "autumn"),
