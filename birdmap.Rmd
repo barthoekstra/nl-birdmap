@@ -458,16 +458,23 @@ final_stacks <- expand.grid(
 
 fstacks <- asplit(final_stacks, 1)
 
-save_map <- function(x, overwrite = FALSE, mode = "dark") {
+save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
   fs <- x
+  
+  basepath_stacks <- "data/final_stacks/"
+  if (cluttermap) basepath_stacks <- "data/final_stacks_clutter/"
+  basepath_maps <- "data/maps/"
+  if (cluttermap) basepath_maps <- "data/maps_clutter/"
+  basepath_plots <- "data/maps_plots/VIR_"
+  if (cluttermap) basepath_plots <- "data/maps_plots_clutter/VIR_"
 
   fstacks <- paste0(
-    "data/final_stacks/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_",
+    basepath_stacks, fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_",
     fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["R_threshold"], ".tif"
   )
   fstacks <- str_replace_all(fstacks, " ", "")
   mapfile <- paste0(
-    "data/maps/", fs["daytime"], "/", fs["mm"],
+    basepath_maps, fs["daytime"], "/", fs["mm"],
     "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".tif"
   )
   mapfile <- str_replace_all(mapfile, " ", "")
@@ -479,7 +486,7 @@ save_map <- function(x, overwrite = FALSE, mode = "dark") {
   if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
 
   mapfile_plot <- paste0(
-    "data/maps_plots/VIR_", fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_",
+    basepath_plots, fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_",
     fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".png"
   )
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
@@ -745,106 +752,18 @@ for (i in 1:nrow(final_stacks)) {
 }
 ```
 
+And now we convert it into a national-level map of clutter contamination again
+
 ```{r}
 final_stacks <- expand.grid(season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
+                            daytime = c("night"),
                             th = c(2500),
-                            mm = c("scans",),
-                            zmax = c(2000))
+                            mm = c("scans"),
+                            zmax = c(2000),
+                            R_threshold = 10)
 
 fstacks <- asplit(final_stacks, 1)
-  
-save_map <- function(x, overwrite = FALSE) {
-  fs <- x
-  
-  fstacks <- paste0("data/final_stacks_clutter/", fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_", 
-                    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], ".tif")
-  fstacks <- str_replace_all(fstacks, " ", "")
-  mapfile <- paste0("data/maps_clutter/", fs["daytime"], "/", fs["mm"], 
-                    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".tif")
-  mapfile <- str_replace_all(mapfile, " ", "")
-  
-  if(file.exists(mapfile) & !overwrite) return(mapfile)
-  
-  if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
-  
-  mapfile_plot <- paste0("data/maps_plots_borderless_transparent_clutter/VIR_", fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".png")
-  # mapfile_plot <- paste0("data/maps_plots_borderless_transparent_temp/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
-  #                        fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".pdf")
-  mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
-  if (!dir.exists(dirname(mapfile_plot))) dir.create(dirname(mapfile_plot), recursive = TRUE)
-  
-  r1 <- rast(fstacks[1]) %>% project("EPSG:28992")
-  r2 <- rast(fstacks[2]) %>% project("EPSG:28992")
-  
-  bbox1 <- ext(r1)
-  bbox2 <- ext(r2)
-  
-  combined_bbox <- c(min(bbox1$xmin, bbox2$xmin), max(bbox1$xmax, bbox2$xmax), 
-                     min(bbox1$ymin, bbox2$ymin), max(bbox1$ymax, bbox2$ymax))
-  
-  rn <- rast(ext = combined_bbox, crs = "EPSG:28992")
-  res(rn) <- 500
-  
-  r1_resampled <- resample(r1, rn)
-  r2_resampled <- resample(r2, rn)
-  
-  m <- mosaic(sprc(r1_resampled, r2_resampled), fun = mean)
-  writeRaster(m, mapfile, overwrite = TRUE)
-  
-  data <- raster::as.data.frame(m, xy = TRUE)
-  
-  c <- crs(m)
-  nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
-  nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
-  nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
-  radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
-  
-  radar_bbox <- st_bbox(radar_buf)
-  
-  padding <- 500
-  # xlim <- c(min(data$x), max(data$x))
-  xlim <- c(radar_bbox$xmin - padding, radar_bbox$xmax + padding)
-  # ylim <- c(min(data$y), max(data$y))
-  ylim <- c(radar_bbox$ymin - padding, radar_bbox$ymax + padding)
-  zlim <- c(0, quantile(data$mean, 0.95))
-  zlim <- c(0, as.numeric(fs["zmax"]))
-  season <- if_else(fs["daytime"] == "night", "by Night", "by Day")
-  title <- paste0(str_to_sentence(fs["season"]), " ", season)
-  subtitle <- paste0("Noise threshold: ", fs["th"], " / Stacking method: ", fsmm)
-  
-  ggplot(data) +
-    geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
-    scale_fill_viridis_c(limits = zlim / 11, name = "Mean\nVIR", oob = scales::squish, option = "inferno") +
-    geom_sf(data = nl, fill = "NA", color = "white", linewidth = .3) +
-    #geom_sf(data = nhol_buf, fill = "NA", color = "white", linewidth = .3) +
-    #geom_sf(data = nhol, fill = "NA", color = "white", linewidth = .3) +
-    geom_sf(data = radar_buf, fill = "NA", color = "#ffffffaa", linewidth = .3) +
-    # geom_sf(data = radar_buf, fill = "NA", color = alpha("#ffffff", 0.5), linewidth = .3) +
-    coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
-    # ggtitle(title, subtitle) +
-    ggtitle(title) +
-    dark_theme_minimal() +
-    theme(axis.title.x = element_blank(),
-          axis.title.y = element_blank(),
-          plot.title = element_text(size = 14),
-          plot.subtitle = element_text(size = 10),
-          # axis.text.x = element_text(color = "white"),
-          # axis.text.y = element_text(color = "white"),
-          axis.text = element_text(color = alpha("white", 0.25)),
-          panel.grid.major = element_line(color = alpha("white", 0.1)),
-          panel.grid.minor = element_line(color = "white"),
-          plot.title.position = "plot",
-          #plot.background = element_rect(color = "black", fill = "black", linewidth = 6),
-          # plot.background = element_rect(color = "NA", fill = "NA"),
-          legend.position = c(1.02, 0.66),
-          plot.margin = unit(c(1,1,1,1), "cm")) -> pl1
-  
-  ggsave(mapfile_plot, plot = pl1, width = 5, height = 6)
-}
-
-# processing <- mclapply(fstacks, save_map, overwrite = TRUE, mc.cores = 10, mc.preschedule = FALSE)
-processing <- lapply(fstacks, save_map, overwrite = TRUE)
+processing <- lapply(fstacks, save_map, cluttermap = TRUE, overwrite = TRUE)
 
 saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
