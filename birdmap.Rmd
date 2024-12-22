@@ -433,7 +433,6 @@ for (i in 1:nrow(final_stacks)) {
   st_crs(center_point) <- 4326
   center_point <- st_transform(center_point, crs = st_crs(rmean))
   circle <- st_buffer(center_point, dist = circle_radius)
-  # mask(x = raster_data, mask = circle)
   masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(rmean, values = NA_real_), nx = 640, ny = 640))
   masked_raster[masked_raster == 0] <- NA
 
