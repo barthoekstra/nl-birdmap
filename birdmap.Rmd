@@ -625,7 +625,7 @@ paths <- list(paste0("mc cp ", filepaths_dhl, " ."), paste0("mc cp ", filepaths_
 write_lines(unlist(paths), file = "data/pvol_clutter/dhl_files.sh", )
 ```
 
-And we process the files following the procedure in `rbc_preprocessing.R`.
+And we process the files following the procedure in `rbc_preprocessing.R`. Afterwards, we screen scans again to remove cases with rain, anomalous propagation. We save information on the screening outcomes, to gather files to continue working with.
 
 ```{r}
 accepted_files <- list.files("data/rbc_png_clutter/full/Accepted/")
@@ -651,97 +651,16 @@ vp_mtr_low %>%
   identity() -> vp_mtr_low_cl
 ```
 
+And again we can make the season-year stacks.
+
 ```{r}
-stack_rbcs <- function(rbcs, props, year_season, odimcode, daytime, threshold_max = 2500, mean_method = "pixels", overwrite = FALSE) {
-  # See if files exist already
-  daytime <- if_else(daytime == "night", "night", "day")
-  filepath <- paste0("data/stacks_clutter/",
-                     str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".RDS")
-  rasterpath <- paste0("data/stacks_clutter/",
-                       str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, ".tif")
-
-  if (file.exists(filepath) && file.exists(rasterpath)) {
-    if (!overwrite) {
-      return("exists")
-    }
-  }
-
-  r <- rbcs[[1]]
-  rp <- r
-  cs <- rbcs[[1]]$data@data$VIR
-  cs <- cs * 0
-  cp <- cs
-  zeros <- cs
-
-  VIRs <- list()
-  css <- list()
-  cps <- list()
-
-  for(i in seq_along(rbcs)) {
-    VIR <- rbcs[[i]]$data@data$VIR
-    RAIN <- rbcs[[i]]$data@data$rain
-    VIR[which(VIR > threshold_max)] <- threshold_max
-    # VIR[which(VIR == 0)] <- NA
-    VIR[which(RAIN > 0)] <- NA
-    cs <- cs + 1 - (is.na(VIR) * 1)
-    cp <- (1 * props[i]) - (is.na(VIR) * 1 * props[i])
-    VIRs <- append(VIRs, list(VIR))
-    css <- append(css, list(cs))
-    cps <- append(cps, list(cp))
-  }
-
-  mVIR <- do.call(rbind, VIRs)
-  mCSS <- do.call(rbind, css)
-  mCPS <- do.call(rbind, cps)
-
-  mVIR[is.na(mVIR)] <- 0
-  VIR_summed <- mVIR[1, ] * 0
-
-  for (j in seq_along(VIRs)) {
-    if (j == 1) {
-      VIR_summed <- as.vector(as.matrix(mVIR[1:j, ]))
-      rp$data@data[paste0("VIR_", j)] <- VIR_summed
-      next
-    }
-    
-    if (mean_method == "scans") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / j
-    } else if (mean_method == "pixels") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ])) / css[[j]]
-    } else if (mean_method == "weighted") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]) * as.matrix(mCPS[1:j, ])) / colSums(as.matrix(mCPS[1:j, ]))
-    } else if (mean_method == "weighted_scans") {
-      VIR_summed <- colSums(sweep(as.matrix(mVIR[1:j, ]), MARGIN = 1, props[1:j], `*`)) / sum(props[1:j])
-    } else if (mean_method == "none") {
-      VIR_summed <- colSums(as.matrix(mVIR[1:j, ]))
-    }
-    rp$data@data[paste0("VIR_", j)] <- as.numeric(VIR_summed)
-  }
-
-  remove_variables <- c("VID", "R", "overlap", "eta_sum", "eta_sum_expected", "rain")
-  for (var in remove_variables) {
-    rp$data@data[var] <- NULL
-  }
-  rp$data$css <- as.vector(css[[length(css)]])
-  rp$data$VIR <- as.vector(as.matrix(rp$data@data[paste0("VIR_", length(VIRs))]))
-
-  rp <- calculate_param(rp, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
-  saveRDS(rp, filepath)
-  rrast <- terra::rast(rp$data)
-  fixedlayers <- c("VIR", "css", "cps", "VIR_log10", "VIR_log", "VIR_sqrt")
-  layernames <- names(rrast)
-  layerorder <- c(which(layernames %in% fixedlayers), which(!layernames %in% fixedlayers))
-  rrast <- subset(rrast, layerorder)
-  terra::writeRaster(rrast, rasterpath, overwrite = overwrite)
-}
-
 g <- expand.grid(year_season = unique(vp_mtr_low_cl$year_season),
                  day_night = unique(vp_mtr_low_cl$day_night),
                  odim_code = unique(vp_mtr_low_cl$odim_code))
 
 generate_stacks <- function(year_season, day_night, odim_code,
-                            th = c(2500),
-                            mm = c("scans", "none"),
+                            th = 2500,
+                            R_threshold = 10,
                             overwrite = FALSE) {
   
   vp_mtr_low_cl %>%
@@ -752,43 +671,38 @@ generate_stacks <- function(year_season, day_night, odim_code,
   
   if (nrow(files) == 0) return("files do not exist")
   
-  gr <- expand.grid(th = th, mm = mm, stringsAsFactors = FALSE)
+  gr <- expand.grid(th = th, R_threshold = R_threshold, stringsAsFactors = FALSE)
   gr <- asplit(gr, 1)
   
   rbcs <- lapply(files$rbcfile, readRDS)
-  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, props = files$prop, year_season = year_season, daytime = day_night, odimcode = odim_code, 
-                                     threshold_max = as.numeric(x["th"]), mean_method = x["mm"], overwrite = overwrite)})
+  lapply(gr, function(x) {stack_rbcs(rbcs = rbcs, year_season = year_season, odimcode = odim_code, 
+                                     threshold_max = as.numeric(x["th"]), R_threshold = x["R_threshold"], overwrite = overwrite, clutter_map = TRUE)})
 }
 
-processing_stacking <- mcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, 
+processing_stacking <- pbmcmapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, 
                                 odim_code = g$odim_code, overwrite = TRUE, mc.cores = 6, mc.preschedule = TRUE)
-processing_stacking <- mapply(generate_stacks, year_season = g$year_season, day_night = g$day_night, 
-                              odim_code = g$odim_code, overwrite = FALSE)
 saveRDS(processing_stacking, paste0("data/logs/processing_stacking_clutter_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-
-# generate_stacks(g$year_season[[1]], day_night = g$day_night[[1]], odim_code = g$odim_code[[1]], overwrite = TRUE)
 ```
 
+Which now we'll aggregate to to seasonal averages.
+
 ```{r}
-final_stacks <- expand.grid(odim_code = c("NLHRW", "NLDHL"),
-                            season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
-                            th = c(2500),
-                            mm = c("scans", "none"))
+final_stacks <- expand.grid(
+  odim_code = c("NLHRW", "NLDHL"),
+  season = c("spring", "autumn"),
+  daytime = c("night"),
+  th = 2500,
+  mm = c("scans"),
+  R_threshold = 10
+)
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
   
   rastfiles <- Sys.glob(
     paste0("data/stacks_clutter/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", 
-           fs$mm, "_", fs$daytime, ".tif")
+           fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   )
-  
-  if (fs$mm == "none") {
-    names_layers <- names(terra::rast(rastfiles))
-    names_layers <- names_layers[!names_layers %in% c("css", "VIR", "VIR_log10", "VIR_log", "VIR_sqrt")]
-    n_layers <- length(names_layers)
-  }
   
   stk <- terra::rast(lapply(rastfiles, function(x) {
     tryCatch(terra::rast(x, lyrs = "VIR"), 
@@ -797,17 +711,11 @@ for (i in 1:nrow(final_stacks)) {
              })
   }))
   
-  if (fs$mm != "none") {
-    rmean <- app(stk, mean)
-  } else {
-    layer_mean <- function(i) sum(i) / n_layers
-    rmean <- app(stk, layer_mean) 
-  }
-  
+  rmean <- app(stk, mean) 
   names(rmean) <- "vir_mean"
   
   file_out <- paste0("data/final_stacks_clutter/", fs$daytime, "/", fs$mm, "/", 
-                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime,".tif")
+                     fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
   
   if (fs$odim_code == "NLHRW") {
@@ -828,7 +736,6 @@ for (i in 1:nrow(final_stacks)) {
   st_crs(center_point) <- 4326
   center_point <- st_transform(center_point, crs = st_crs(rmean))
   circle <- st_buffer(center_point, dist = circle_radius)
-  # mask(x = raster_data, mask = circle)  
   masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(rmean, values = NA_real_), nx = 640, ny = 640))
   masked_raster[masked_raster == 0] <- NA
   
@@ -842,7 +749,7 @@ for (i in 1:nrow(final_stacks)) {
 final_stacks <- expand.grid(season = c("spring", "autumn"),
                             daytime = c("day", "night"),
                             th = c(2500),
-                            mm = c("scans", "none"),
+                            mm = c("scans",),
                             zmax = c(2000))
 
 fstacks <- asplit(final_stacks, 1)
@@ -861,7 +768,7 @@ save_map <- function(x, overwrite = FALSE) {
   
   if (!dir.exists(dirname(mapfile))) dir.create(dirname(mapfile), recursive = TRUE)
   
-  mapfile_plot <- paste0("data/maps_plots_borderless_transparent_clutter/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, ".png")
+  mapfile_plot <- paste0("data/maps_plots_borderless_transparent_clutter/VIR_", fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], ".png")
   # mapfile_plot <- paste0("data/maps_plots_borderless_transparent_temp/VIR_", fs["zmax"], "/", fs["daytime"], "/", fsmm, "/NL_", 
   #                        fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fsmm, "_", fs["sp"], ".pdf")
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
