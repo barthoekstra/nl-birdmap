@@ -111,6 +111,10 @@ data/maps/*
 data/maps_plots/*
 !data/maps_plots/.gitkeep
 
+!data/maps_plots_clutter
+data/maps_plots_clutter/*
+!data/maps_plots_clutter/.gitkeep
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
