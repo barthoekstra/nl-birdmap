@@ -119,6 +119,10 @@ data/maps_plots_clutter/*
 data/final_maps/*
 !data/final_maps/.gitkeep
 
+beam-blockage/srtm/*
+beam-blockage/*.csv
+!beam-blockage/beamblockage.ipynb
+
 comms/vps
 comms/vps_50m
 comms/vps_unused
