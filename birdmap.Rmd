@@ -299,11 +299,11 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
     VIR <- rbcs[[i]]$data@data$VIR
     R <- rbcs[[i]]$data@data$R
     RAIN <- rbcs[[i]]$data@data$rain
-    if (!clutter_map) {
-      VIR[which(VIR > threshold_max)] <- NA
-    } else {
-      VIR[which(VIR > threshold_max)] <- threshold_max
-    }
+    # if (!clutter_map) {
+    VIR[which(VIR > threshold_max)] <- NA
+    # } else {
+    #   VIR[which(VIR > threshold_max)] <- threshold_max
+    # }
     VIR[which(VIR == 0)] <- NA
     VIR[which(RAIN > 0)] <- NA
     if (!is.null(R_threshold) && !clutter_map) {
