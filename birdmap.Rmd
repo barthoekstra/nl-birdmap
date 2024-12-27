@@ -829,25 +829,41 @@ saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "
 
 ```{r}
 clutter_maps <- expand.grid(season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
-                            thresh = c(100, 150, 200, 250, 300),
-                            s = c(1, 2, 3, 4, 5, 6, 7),
-                            n = c(13, 17, 21, 25, 29),
+                            daytime = c("night"),
+                            # thresh = c(25, 50, 100, 150, 200, 250, 300),
+                            thresh = c(250),
+                            # s = c(1, 2, 3, 4, 5, 6, 7),
+                            # n = c(13, 17, 21, 25, 29),
+                            s = c(4),
+                            n = c(25),
                             stringsAsFactors = FALSE)
+# clutter_maps <- expand.grid(season = c("spring", "autumn"),
+#                             daytime = c("night"),
+#                             thresh = c(250),
+#                             s = c(4),
+#                             n = c(25),
+#                             stringsAsFactors = FALSE)
 
 create_final_map_set <- function(map_grid, buffer_patches = NULL,
                                  custom_clutter = NULL) {
   cm <- asplit(map_grid, 1)
 
   for (m in cm) {
+    t <- as.numeric(m["thresh"])
     r <- rast(paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
-                     "_thresh_2500_avg_scans_seasons_nonstandardized.tif"))
+                     "_thresh_2500_avg_scans_10.tif"))
     if (is.null(custom_clutter)) {
       rc <- rast(paste0("data/maps_clutter/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
-                        "_thresh_2500_avg_scans.tif"))
+                        "_thresh_2500_avg_scans_10.tif"))
+      rc2 <- rast(paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
+                        "_thresh_2500_avg_scans_10_clut.tif"))
+      print(rc2)
       # Create denoised clutter map
       rc[rc < t] <- NA
       rc[rc >= t] <- 1
+      rc2[rc2 > 0.25] <- 1
+      rc2[rc2 != 1] <- NA
+      rc <- rc | rc2
     } else {
       if (is.logical(custom_clutter)) {
         rc <- rast(paste0("data/final_maps/custom_clutter/NL_", m["season"], "_", m["daytime"], ".tif"))
@@ -856,7 +872,6 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
       }
     }
     
-    t <- as.numeric(m["thresh"])
     s <- as.numeric(m["s"])
     n <- as.numeric(m["n"])
     
@@ -869,7 +884,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     
     prc <- patches(rc)
     zrc <- zonal(cellSize(prc, unit = "km"), prc, sum, as.raster = TRUE)
-    src <- ifel(zrc < 2, NA, prc)
+    src <- ifel(zrc < 1, NA, prc)
     rcn <- rc
     rcn[is.na(src)] <-NA
     
@@ -901,7 +916,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
             plot.margin = unit(c(1,1,1,1), "cm")) -> pclut
     
     # Save plot
-    fp_clutplot <- paste0("data/final_maps/plots/NL_", m["season"], "_", m["daytime"], 
+    fp_clutplot <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
                           "_thresh_", t, "_s_", s, "_n_", n, "_clut.png")
     ggsave(pclut, width = 7, height = 4, filename = fp_clutplot)
     
@@ -931,7 +946,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     if (m["season"] == "autumn") {
       zlims <- c(0, 800)
     } else if (m["season"] == "spring") {
-      zlims <- c(0, 400)
+      zlims <- c(0, 800)
     }
     
     data <- as.data.frame(b, xy = TRUE)
@@ -960,7 +975,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
             plot.margin = unit(c(1,1,1,1), "cm"))-> p
     
     # Save plot
-    fp_plot <- paste0("data/final_maps/plots/NL_", m["season"], "_", m["daytime"], 
+    fp_plot <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
                       "_thresh_", t, "_s_", s, "_n_", n, ".png")
     ggsave(p, filename = fp_plot)
     
@@ -969,12 +984,10 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
   }
 }
 
-create_final_map_set(clutter_maps)
-
-# mclapply(clutter_maps, create_final_map_set, mc.cores = 14, mc.preschedule = TRUE)
+create_final_map_set(clutter_maps, buffer_patches = 500)
 ```
 
-After a visual inspection of the plots above, we have settled on using clutter maps with a VIR threshold of 250
+After a visual inspection of the plots above created with a grid of settings (see commented out), we have settled on using clutter maps with a VIR threshold of 250.
 
 ```{r}
 # final_clutter_maps <- list.files("data/final_maps", pattern = "*thresh_250_s_4_n_21_clutter.tif", full.names = TRUE)
