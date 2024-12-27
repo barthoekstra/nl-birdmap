@@ -294,27 +294,39 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
   rp <- r
 
   VIRs <- list()
+  CLUTs <- list()
 
   for (i in seq_along(rbcs)) {
     VIR <- rbcs[[i]]$data@data$VIR
+    CLUT <- rbcs[[i]]$data@data$VIR * 0
     R <- rbcs[[i]]$data@data$R
     RAIN <- rbcs[[i]]$data@data$rain
     # if (!clutter_map) {
-    VIR[which(VIR > threshold_max)] <- NA
+    clutlocs <- which(VIR > threshold_max)
+    VIR[clutlocs] <- NA
+    CLUT[clutlocs] <- CLUT[clutlocs] + 1
     # } else {
     #   VIR[which(VIR > threshold_max)] <- threshold_max
     # }
     VIR[which(VIR == 0)] <- NA
-    VIR[which(RAIN > 0)] <- NA
+    rainlocs <- which(RAIN > 0)
+    # VIR[rainlocs] <- NA
+    # CLUT[rainlocs] <- CLUT[rainlocs] + 1
     if (!is.null(R_threshold) && !clutter_map) {
-      VIR[which(R_threshold > 10)] <- NA
+      r_thresh_locs <- which(R_threshold > 10)
+      VIR[r_thresh_locs] <- NA
+      CLUT[r_thresh_locs] <- CLUT[r_thresh_locs] + 1
     }
     VIRs <- append(VIRs, list(VIR))
+    CLUTs <- append(CLUTs, list(CLUT))
   }
 
   mVIR <- do.call(rbind, VIRs)
   mVIR[is.na(mVIR)] <- 0
   VIR_summed <- mVIR[1, ] * 0
+  
+  mCLUT <- do.call(rbind, CLUTs)
+  CLUT_summed <- colSums(mCLUT)
 
   for (j in seq_along(VIRs)) {
     if (j == 1) {
@@ -332,6 +344,7 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
     rp$data@data[var] <- NULL
   }
   rp$data$VIR <- as.vector(as.matrix(rp$data@data[paste0("VIR_", length(VIRs))]))
+  rp$data$CLUT <- as.numeric(CLUT_summed)
 
   rp <- calculate_param(rp, VIR_log10 = log10(VIR), VIR_log = log(VIR), VIR_sqrt = sqrt(VIR))
   saveRDS(rp, filepath)
@@ -413,6 +426,17 @@ for (i in 1:nrow(final_stacks)) {
   }))
   rmean <- app(stk, mean)
   names(rmean) <- "vir_mean"
+  
+  stk <- terra::rast(lapply(rastfiles, function(x) {
+    tryCatch(terra::rast(x, lyrs = "CLUT"),
+      error = function(err) {
+        print(err)
+      }
+    )
+  }))
+  csum <- app(stk, sum)
+  csum <- csum / minmax(csum)[2]
+  names(csum) <- "clut_sum"
 
   file_out <- paste0(
     "data/final_stacks/", fs$daytime, "/", fs$mm, "/",
@@ -442,8 +466,10 @@ for (i in 1:nrow(final_stacks)) {
   masked_raster[masked_raster == 0] <- NA
 
   raster_masked <- terra::mask(rmean, as(masked_raster, "SpatRaster"))
+  clut_masked <- terra::mask(csum, as(masked_raster, "SpatRaster"))
 
   writeRaster(raster_masked, file_out, overwrite = TRUE)
+  writeRaster(clut_masked, paste0(tools::file_path_sans_ext(file_out), "_clut.tif"), overwrite = TRUE)
 }
 ```
 
@@ -478,6 +504,8 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
     fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["R_threshold"], ".tif"
   )
   fstacks <- str_replace_all(fstacks, " ", "")
+  clutstacks <- paste0(tools::file_path_sans_ext(fstacks), "_clut.tif")
+  clutstacks <- str_replace_all(clutstacks, " ", "")
   mapfile <- paste0(
     basepath_maps, fs["daytime"], "/", fs["mm"],
     "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".tif"
@@ -513,8 +541,19 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
 
   m <- mosaic(sprc(r1_resampled, r2_resampled), fun = max)
   writeRaster(m, mapfile, overwrite = TRUE)
+  
+  r1_clut <- rast(clutstacks[1]) %>% project("EPSG:28992")
+  r2_clut <- rast(clutstacks[2]) %>% project("EPSG:28992")
 
-  data <- raster::as.data.frame(m, xy = TRUE)
+  r1_resampled_clut <- resample(r1_clut, rn)
+  r2_resampled_clut <- resample(r2_clut, rn)
+
+  m_clut <- mosaic(sprc(r1_resampled_clut, r2_resampled_clut), fun = max)
+  writeRaster(m_clut, paste0(tools::file_path_sans_ext(mapfile), "_clut.tif"), overwrite = TRUE)
+  
+  maps <- c(m, m_clut)
+
+  data <- raster::as.data.frame(maps, xy = TRUE)
 
   c <- crs(m)
   nl <- geojsonsf::geojson_sfc("data/gis/Netherlands.geojson") %>% st_transform(c)
@@ -530,7 +569,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
   zlim <- c(0, as.numeric(fs["zmax"]))
   tod <- if_else(fs["daytime"] == "night", "by Night", "by Day")
   title <- paste0(str_to_sentence(fs["season"]), " ", tod)
-
+  
   if (mode == "dark") {
     ggplot(data) +
       geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
@@ -578,7 +617,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
   ggsave(mapfile_plot, plot = pl1, width = 5, height = 6)
 }
 
-processing <- mclapply(fstacks, save_map, overwrite = TRUE, mode = "light", mc.cores = 10, mc.preschedule = FALSE)
+processing <- pbmclapply(fstacks, save_map, overwrite = TRUE, mode = "light", mc.cores = 10, mc.preschedule = FALSE)
 
 saveRDS(processing, paste0("data/logs/processing_mapping_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 ```
@@ -726,6 +765,17 @@ for (i in 1:nrow(final_stacks)) {
   rmean <- app(stk, mean) 
   names(rmean) <- "vir_mean"
   
+  stk <- terra::rast(lapply(rastfiles, function(x) {
+    tryCatch(terra::rast(x, lyrs = "CLUT"),
+      error = function(err) {
+        print(err)
+      }
+    )
+  }))
+  csum <- app(stk, sum)
+  csum <- csum / minmax(csum)[2]
+  names(csum) <- "clut_sum"
+  
   file_out <- paste0("data/final_stacks_clutter/", fs$daytime, "/", fs$mm, "/", 
                      fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
@@ -752,8 +802,10 @@ for (i in 1:nrow(final_stacks)) {
   masked_raster[masked_raster == 0] <- NA
   
   raster_masked <- terra::mask(rmean, as(masked_raster, "SpatRaster"))
+  clut_masked <- terra::mask(csum, as(masked_raster, "SpatRaster"))
   
   writeRaster(raster_masked, file_out, overwrite = TRUE)
+  writeRaster(clut_masked, paste0(tools::file_path_sans_ext(file_out), "_clut.tif"), overwrite = TRUE)
 }
 ```
 
