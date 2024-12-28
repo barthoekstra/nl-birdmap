@@ -989,33 +989,9 @@ create_final_map_set(clutter_maps, buffer_patches = 500)
 
 After a visual inspection of the plots above created with a grid of settings (see commented out), we have settled on using clutter maps with a VIR threshold of 250.
 
-```{r}
-# final_clutter_maps <- list.files("data/final_maps", pattern = "*thresh_250_s_4_n_21_clutter.tif", full.names = TRUE)
-
-clutter_maps <- expand.grid(season = c("spring", "autumn"),
-                            daytime = c("day", "night"),
-                            thresh = c(250),
-                            s = c(4),
-                            n = c(25),
-                            stringsAsFactors = FALSE)
-
-clutter_maps_files <- list.files("data/final_maps/custom_clutter", full.names = TRUE)
-
-cl <- rast(clutter_maps_files)
-cl <- app(cl, sum, na.rm = TRUE)
-cl[cl > 1] <- 1
-writeRaster(cl, "data/final_maps/custom_clutter/NL_combined.tif", overwrite = TRUE)
-
-# create_final_map_set(clutter_maps, buffer_patches = 500, 
-#                      custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
-# mclapply(clutter_maps, create_final_map_set, buffer_patches = 250, custom_clutter = TRUE, 
-         # mc.cores = 4, mc.preschedule = TRUE)
-create_final_map_set(clutter_maps, buffer_patches = NULL, custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
-```
-
 # Beam blockage
 
-After calculating beam blockage using "beam-blockage/beamblockage.ipynb", two .csv's storing x,y,z and CBB (cumulative beam blockage) values are created for both HRW and DHL radars. We will turn these in raster files which can be used in this project.
+After calculating beam blockage using "beam-blockage/beamblockage.ipynb", which can also be found in [the wradlib package documentation](https://docs.wradlib.org/en/1.19.1/notebooks/beamblockage/wradlib_beamblock.html), two .csv's storing x,y,z and CBB (cumulative beam blockage) values are created for both HRW and DHL radars. We will turn these in raster files which can be used in this project.
 
 ```{r}
 hrw_bb <- read_csv("data/beam_blockage/hrw.csv", col_types = "dddddd") %>% 
@@ -1024,8 +1000,8 @@ hrw_bb <- read_csv("data/beam_blockage/hrw.csv", col_types = "dddddd") %>%
 dhl_bb <- read_csv("data/beam_blockage/dhl.csv", col_types = "dddddd") %>%
   dplyr::select(x, y, CBB)
 
-exrast_hrw <- rast("data/final_stacks/night/scans/NLHRW_autumn_thresh_2500_avg_scans_night_seasons_nonstandardized.tif")
-exrast_dhl <- rast("data/final_stacks/night/scans/NLDHL_autumn_thresh_2500_avg_scans_night_seasons_nonstandardized.tif")
+exrast_hrw <- rast("data/final_stacks/night/scans/NLHRW_autumn_thresh_2500_avg_scans_night_10.tif")
+exrast_dhl <- rast("data/final_stacks/night/scans/NLDHL_autumn_thresh_2500_avg_scans_night_10.tif")
 
 v_hrw <- vect(hrw_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_hrw)
 v_dhl <- vect(dhl_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_dhl)
@@ -1566,302 +1542,27 @@ ggsave("data/final_maps_plots/Gemeentes_Provincie.pdf", width = 10, height = 3.5
 ```
 
 
-data %>%
-  filter(daytime == "day") %>%
-  ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  scale_fill_viridis_c(limits = c(0, 300), oob = scales::squish, option = "inferno", na.value = 0, 
-                       name = "VIR (cm2/km2)") +
-  new_scale_fill() +
-  geom_raster(aes(x = x, y = y, fill = vid_mean)) +
-  scale_fill_viridis_c(limits = c(0, 300/11), oob = scales::squish, option = "inferno", na.value = 0, 
-                       name = "VID (vogels/km2)") +
-  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf), 
-                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
 
-ggsave("data/final_maps_plots/day.pdf", width = 17, height = 10, device = cairo_pdf)
+```{r}
+# final_clutter_maps <- list.files("data/final_maps", pattern = "*thresh_250_s_4_n_21_clutter.tif", full.names = TRUE)
 
-# cmap_name <- "fusion"
-# cmap_url <- paste0("https://raw.githubusercontent.com/1313e/CMasher/master/",
-#                    "cmasher/colormaps/", cmap_name, "/", cmap_name, "_norm.txt")
-# cmtable <- read.table(cmap_url)
-# cmscale <- rgb(cmtable[,1], cmtable[,2], cmtable[,3])
-# image(volcano, col=cmscale)
+clutter_maps <- expand.grid(season = c("spring", "autumn"),
+                            daytime = c("day", "night"),
+                            thresh = c(250),
+                            s = c(4),
+                            n = c(25),
+                            stringsAsFactors = FALSE)
 
-da %>%
-  terra::mask(nl_buf_spatvector) %>%
-  as.data.frame(xy = TRUE) %>%
-  rename("vir_mean" = "focal_mean") %>%
-  mutate(vid_mean = vir_mean / 11) %>%
-  # filter(daytime == "day") %>%
-  ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
-  # scico::scale_fill_scico(palette = "vik", midpoint = 0) +
-  # scale_fill_gradient2(low = "red", high = "blue", mid = "white", midpoint = 0) +
-  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-400, 400), oob = scales::squish, 
-                       name = "VIR verschil (cm2/km2)") +
-  # scale_fill_gradientn(colours = rev(cmscale), name = "VIR Difference", oob = scales::squish, limits = c(-300, 300)) +
-  # new_scale_fill() +
-  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf), 
-                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  # facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
+clutter_maps_files <- list.files("data/final_maps/custom_clutter", full.names = TRUE)
 
-ggsave("data/final_maps_plots/diff_absolute_night.pdf", width = 10, height = 10, device = cairo_pdf)
+cl <- rast(clutter_maps_files)
+cl <- app(cl, sum, na.rm = TRUE)
+cl[cl > 1] <- 1
+writeRaster(cl, "data/final_maps/custom_clutter/NL_combined.tif", overwrite = TRUE)
 
-da_s %>%
-  terra::mask(nl_buf_spatvector) %>%
-  as.data.frame(xy = TRUE) %>%
-  rename("vir_mean" = "focal_mean") %>%
-  mutate(vid_mean = vir_mean / 11) %>%
-  # filter(daytime == "day") %>%
-  ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
-                       name = "Rel. VIR verschil") +
-  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
-  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf),
-                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  # facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
-
-ggsave("data/final_maps_plots/diff_relative_night.pdf", width = 10, height = 10, device = cairo_pdf)
-
-db %>%
-  terra::mask(nl_buf_spatvector) %>%
-  as.data.frame(xy = TRUE) %>%
-  rename("vir_mean" = "focal_mean") %>%
-  mutate(vid_mean = vir_mean / 11) %>%
-  # filter(daytime == "day") %>%
-  ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
-  # scico::scale_fill_scico(palette = "vik", midpoint = 0) +
-  # scale_fill_gradient2(low = "red", high = "blue", mid = "white", midpoint = 0) +
-  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-100, 100), oob = scales::squish, 
-                       name = "VIR verschil (cm2/km2)") +
-  # scale_fill_gradientn(colours = rev(cmscale), name = "VIR Difference", oob = scales::squish, limits = c(-300, 300)) +
-  # new_scale_fill() +
-  # geom_raster(data = clut, aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  # geom_raster(data = cbb %>% filter(focal_max > 0.05), aes(x = x, y = y), fill = alpha("black", 0.2)) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf), 
-                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  # facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
-
-ggsave("data/final_maps_plots/diff_absolute_day.pdf", width = 10, height = 10, device = cairo_pdf)
-
-db_s %>%
-  terra::mask(nl_buf_spatvector) %>%
-  as.data.frame(xy = TRUE) %>%
-  rename("vir_mean" = "focal_mean") %>%
-  mutate(vid_mean = vir_mean / 11) %>%
-  # filter(daytime == "day") %>%
-  ggplot() +
-  geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
-                       name = "Rel. VIR verschil") +
-  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
-  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf),
-                  fill = alpha("black", 0.1), color = alpha("white", 0.1),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  # facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
-
-ggsave("data/final_maps_plots/diff_relative_day.pdf", width = 10, height = 10, device = cairo_pdf)
-
-db_s %>%
-  terra::mask(nl_buf_spatvector) %>%
-  as.data.frame(xy = TRUE) %>%
-  rename("vir_mean" = "focal_mean") %>%
-  mutate(vid_mean = vir_mean / 11) %>%
-  # filter(daytime == "day") %>%
-  ggplot() +
-  # geom_raster(aes(x = x, y = y, fill = vir_mean)) +
-  # scale_fill_distiller(palette = "RdBu", type = "div", limits = c(-0.5, 0.5), oob = scales::squish, 
-  #                      name = "Rel. VIR verschil") +
-  # scale_fill_continuous_diverging("Berlin", name = "VIR Difference") +
-  # scale_fill_gradientn(colours = cmscale, name = "VIR Rel. Diff.", limits = c(-0.5, 0.5), oob = scales::squish) +
-  geom_sf(data = nl_buf, fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("black", 0.9), linewidth = 1) +
-  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
-  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
-  geom_sf_pattern(aes(pattern = certainty), 
-                  data = uncertainty %>% st_intersection(nl_buf),
-                  fill = alpha("black", 0.2), color = alpha("white", 0.5),
-                  pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.2), pattern_color = NA) +
-  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
-  annotation_scale(text_col = "white", style = "ticks", line_col = "white") +
-  dark_theme_minimal() +
-  # facet_wrap(vars(season, daytime)) +
-  # labs(title = paste0(str_to_sentence(m["season"]), " by ", m["daytime"])) +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 10),
-        # axis.text.x = element_text(color = "white"),
-        # axis.text.y = element_text(color = "white"),
-        axis.text = element_text(color = alpha("white", 0.25)),
-        # plot.background = element_rect(fill = "NA", ),
-        plot.background = element_rect(fill = "black", color = "NA"),
-        panel.background = element_blank(),
-        panel.grid.major = element_line(color = alpha("white", 0.1)),
-        panel.grid.minor = element_line(color = "white"),
-        plot.title.position = "plot",
-        plot.margin = unit(c(1,1,1,1), "cm"),
-        legend.direction = "horizontal",
-        legend.position = "bottom",
-        legend.key.width = unit(0.4, "inch"))
-
-ggsave("data/final_maps_plots/uncertainty_areas.pdf", width = 10, height = 10, device = cairo_pdf)
+# create_final_map_set(clutter_maps, buffer_patches = 500, 
+#                      custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
+# mclapply(clutter_maps, create_final_map_set, buffer_patches = 250, custom_clutter = TRUE, 
+         # mc.cores = 4, mc.preschedule = TRUE)
+create_final_map_set(clutter_maps, buffer_patches = NULL, custom_clutter = "data/final_maps/custom_clutter/NL_combined.tif")
 ```
