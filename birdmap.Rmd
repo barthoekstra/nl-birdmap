@@ -1301,7 +1301,7 @@ res_summaries %>%
        # subtitle = "across candidate sites for wind energy in the province of North-Holland",
        x = expression("\u00D7" ~ 1000 ~ "birds" %.% "km"^-1),
        y = "Candidate site")
-ggsave(filename = "data/final_maps_plots/zoekgebieden.pdf", width = 8, height = 6)
+ggsave(filename = "data/final_maps_plots/candidatesites.pdf", width = 8, height = 6)
 ```
 ```
 
