@@ -1066,7 +1066,106 @@ m[m == 0] <- NA
 plot(m)
 writeRaster(m, "data/beam_blockage/NL_beamblockage.tif", overwrite = TRUE)
 ```
+# Quantifying seasonal cumulative migration
+We use the vertical profiles to quantify how many birds actually pass over the Netherlands seasonally.
 
+```{r}
+vp_grid <- expand_grid(
+  radar = c("HRW", "DHL"),
+  year = c(2017:2023),
+  month = c(2, 3, 4, 5, 8, 9, 10, 11)
+)
+
+vpfiles_to_vpts <- function(radar, year, month) {
+  # print(paste0("data/vp/", radar, "/", year, "/", sprintf("%02d", month), "/*/*.h5"))
+  rds_out <- paste0("data/vpts/", radar, year, sprintf("%02d", as.numeric(month)), ".RDS")
+  if(file.exists(rds_out)) {
+    print(paste0(rds_out, " exists"))
+    return(rds_out)
+  }
+  vpfiles <- Sys.glob(paste0("data/vp/", radar, "/", year, "/", sprintf("%02d", as.numeric(month)), "/*/*.h5"))
+  if (length(vpfiles) == 0) {
+    return(paste0(rds_out, " skipped, no vpfiles"))
+  }
+  vps <- pbmclapply(vpfiles, function(x) {
+    vp <- bioRad:::read_vp(x)
+    vp
+  }, mc.cores = 8)
+  vps <- vps[!sapply(vps, is.null)] # Remove nulls
+  vps <- do.call(bioRad:::c.vp, vps)
+  
+  vpts <- bind_into_vpts(vps)
+  vpts <- regularize_vpts(vpts)
+  sd_vvp_threshold(vpts) <- 2
+  
+  saveRDS(vpts, rds_out)
+  print(paste0(rds_out, " processed"))
+  return(rds_out)
+}
+
+out <- apply(vp_grid, 1, function(x) vpfiles_to_vpts(x[1], x[2], x[3]))
+
+vptsfiles_to_mt <- function(radar, year) {
+  year_vpts <- Sys.glob(paste0("data/vpts/", radar, year, "*.RDS"))
+  
+  year_vpts <- lapply(year_vpts, readRDS)
+  year_vpts <- do.call(bind_into_vpts, year_vpts)
+  # year_vpts <- regularize_vpts(year_vpts)
+  
+  spring_period <- c(paste0(year, "-02-15 00:00"), paste0(year, "-05-31 23:55"))
+  autumn_period <- c(paste0(year, "-08-15 00:00"), paste0(year, "-11-30 23:55"))
+  
+  spring_vpts <- regularize_vpts(filter_vpts(year_vpts, spring_period[[1]], spring_period[[2]], night = TRUE), 
+                                 date_min = as.POSIXct(spring_period[[1]]), date_max = as.POSIXct(spring_period[[2]]),
+                                 interval = 300, fill = 3600)
+  autumn_vpts <- regularize_vpts(filter_vpts(year_vpts, autumn_period[[1]], autumn_period[[2]], night = TRUE), 
+                                 date_min = as.POSIXct(autumn_period[[1]]), date_max = as.POSIXct(autumn_period[[2]]),
+                                 interval = 300, fill = 3600)
+  
+  spring_vpi <- integrate_profile(spring_vpts)
+  autumn_vpi <- integrate_profile(autumn_vpts)
+  
+  cum_mt <- list("radar" = radar, "year" = year, "spring_mt" = max(spring_vpi$mt, na.rm = TRUE), "autumn_mt" = max(autumn_vpi$mt, na.rm = TRUE))
+  return(cum_mt)
+}
+
+vpts_grid <- expand_grid(
+  radar = c("HRW", "DHL"),
+  year = c(2017:2023)
+)
+
+cum_mts <- pbmclapply(asplit(vpts_grid, 1), function(x) vptsfiles_to_mt(x[1], x[2]), mc.cores = 5)
+saveRDS(cum_mts, "data/vpts/cum_mts.RDS")
+
+cum_mts <- bind_rows(cum_mts) %>%
+  pivot_longer(cols = c(spring_mt, autumn_mt), names_to = "season", values_to = "mt") %>%
+  mutate(season = case_match(
+    season,
+    "autumn_mt" ~ "autumn",
+    "spring_mt" ~ "spring"
+  )) %>%
+  filter(!(season == "spring" & year == 2017) & !(season == "autumn" & year == 2023))
+
+cummts
+```
+And now we calculate averages from both radars combined for both spring and autumn.
+
+```{r}
+cummts %>%
+  group_by(season) %>%
+  summarise(mt_mean = mean(mt)) %>%
+  arrange(season) %>%
+  identity() -> mig_averages
+
+cummts %>%
+  group_by(season, radar) %>%
+  summarise(mt_mean = mean(mt)) %>%
+  arrange(radar, season) %>%
+  identity() -> mig_averages_radar
+
+print(mig_averages)
+print(mig_averages_radar)
+```
 
 # Final maps
 
