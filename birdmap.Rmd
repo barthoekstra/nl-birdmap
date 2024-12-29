@@ -26,6 +26,7 @@ library(ggpattern)
 library(ggfx)
 library(gghalves)
 library(pbmcapply)
+library(legendry)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
@@ -1169,8 +1170,139 @@ print(mig_averages_radar)
 ```{r}
 ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25.tif")
 bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25.tif")
-bad <- rast("data/final_maps/NL_autumn_day_thresh_250_s_4_n_25.tif")
-bsd <- rast("data/final_maps/NL_spring_day_thresh_250_s_4_n_25.tif")
+
+ban <- ban / global(ban, mean, na.rm = TRUE)[[1]]
+bsn <- bsn / global(bsn, mean, na.rm = TRUE)[[1]]
+
+ban <- ban * mig_averages$mt_mean[[1]]
+bsn <- bsn * mig_averages$mt_mean[[2]]
+
+c <- st_crs(ban)
+nl <- geojsonsf::geojson_sf("data/gis/Netherlands.geojson") %>% st_transform(c)
+nl_buf <- geojsonsf::geojson_sfc("data/gis/Netherlands-5km-Buffer.geojson") %>% st_transform(c)
+clut_buf <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_clutter.tif") %>%
+  as.polygons() %>%
+  st_as_sf() %>%
+  st_transform(c)
+
+bb <- rast("data/beam_blockage/NL_beamblockage.tif")
+bb[bb < 0.05] <- NA
+bb <- bb %>%
+  as.polygons() %>%
+  simplifyGeom(1000) %>%
+  fillHoles() %>%
+  st_as_sf() %>%
+  st_transform(c)
+bb$pattern <- "stripe"
+nhol <- geojsonsf::geojson_sfc("data/gis/Noord-Holland.geojson") %>% st_transform(c)
+nhol_buf <- geojsonsf::geojson_sfc("data/gis/Noord-Holland-10km-Buffer.geojson") %>% st_transform(c)
+nhol_bbox <- st_bbox(nhol_buf)
+radar_buf <- geojsonsf::geojson_sf("data/gis/Radars-100km-Buffer.geojson") %>% st_transform(c)
+radars <- geojsonsf::geojson_sf("data/gis/Radars.geojson") %>% st_transform(c) %>% filter(acronym != "artis")
+
+gebieden <- geojsonsf::geojson_sf("data/gis/gemeenten.geojson") %>% st_transform(c) %>% 
+  filter(Gemeentenaam %in% c("Amsterdam", "Diemen")) %>%
+  rename(gebied = Gemeentenaam) %>%
+  dplyr::select(gebied, geometry) %>%
+  bind_rows(nhol %>% st_as_sf() %>% rename(geometry = x) %>% mutate(gebied = "Noord-Holland")) %>%
+  bind_rows(nl %>% mutate(gebied = "Nederland") %>% dplyr::select(gebied, geometry))
+
+bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
+clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
+uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
+uncertainty$certainty <- "Clutter affected"
+
+res_all <- st_read("data/gis/RES/RES_zoekgebieden_Actueel.shp") %>%
+  filter(str_detect(`Type_`, 'Wind') | str_detect(`Type_`, 'wind')) %>% 
+  st_transform(c)
+res_all %>%
+  sf:::select.sf(RES_id, Naam_gebie, Type_, Regio, RES_deel_r) %>%
+  st_difference(clut_bufc) %>%  # Remove areas in clutter contaminated zone
+  mutate(Naam_gebie = str_replace(Naam_gebie, "\\d+[a-z]\\) ", ""),
+         ID = row_number()) %>%
+  identity() -> res
+
+ban_extract <- extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+bsn_extract <- extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+
+nhol_average_ban <- extract(ban, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+nhol_average_bsn <- extract(bsn, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+
+ban_extract %>%
+  cbind(bsn_extract %>% dplyr::select(MT_spring)) %>%
+  left_join(res, by = "ID") %>%
+  arrange(desc(MT_autumn)) %>%
+  mutate(Naam_gebie = case_match(Naam_gebie,
+                                "Knooppunt Holendrecht" ~ "Holendrecht",
+                                "Diemen Wind B" ~ "Diemen B",
+                                "Diemen Wind C" ~ "Diemen C",
+                                "IJburg Diemerpark" ~ "IJburg Diemerp.",
+                                "Zeeburgereiland" ~ "Zeeburgereil.",
+                                "Havengebied West" ~ "Havengeb. West",
+                                "Zuiderlegmeerpolder-oost" ~ "Zuiderlegmeerp.",
+                                "Kade Velsen Noord" ~ "Velsen Noord",
+                                "ten noorden ring A10 - westelijk gebied" ~ "Ring A10 Noord",
+                                "Zon en wind in  Noordzeekanaalgebied" ~ "Z&W Noordzknl.",
+                                .default = Naam_gebie),
+         Naam_gebie = as.factor(Naam_gebie),
+         Naam_gebie = fct_reorder(Naam_gebie, MT_autumn),
+         geometry_x = st_coordinates(st_centroid(geometry))[,1],
+         geometry_y = st_coordinates(st_centroid(geometry))[,2]) %>%
+  group_by(Naam_gebie) %>%
+  mutate(MT_mean_autumn = mean(MT_autumn),
+         MT_mean_spring = mean(MT_spring)) %>%
+  ungroup() %>%
+  group_by(RES_deel_r) %>%
+  mutate(mean_x = mean(geometry_x),
+         mean_y = mean(geometry_y),
+         RES_deel_r = as.factor(RES_deel_r),
+         RES_deel_r = fct_reorder(RES_deel_r, mean_y, .desc = FALSE),
+         RES_deel_r = recode(RES_deel_r,
+                             "Regio Alkmaar" = "Alkmaar",
+                             "West-Friesland" = "West-Friesland",
+                             "IJmond-Zuid Kennemerland" = "IJmond/\nZuid-Kennemerland",
+                             "Zaanstreek-Waterland" = "Zaanstreek/\nWaterland",
+                             "Amsterdam" = "Amsterdam",
+                             "Amstelland" = "Amstelland",
+                             "Haarlemmermeer" = "Haarlemmermeer")) %>%
+  ungroup() %>%
+  identity() -> res_summaries
+
+key <- key_range_manual(start = c(min(res_summaries$MT_spring) / 1000, min(res_summaries$MT_autumn) / 1000),
+                        end = c(max(res_summaries$MT_spring) / 1000, max(res_summaries$MT_autumn) / 1000),
+                        name = c("Spring", "Autumn"))
+
+res_summaries %>%
+  ggplot() +
+  geom_vline(color = "#00000030", xintercept = nhol_average_ban[[1]] / 1000) +
+  geom_vline(color = "#00000030", xintercept = nhol_average_bsn[[1]] / 1000) +
+  ggdist::stat_pointinterval(aes(x = MT_autumn / 1000, y = Naam_gebie, color = MT_mean_autumn / 1000), .width = c(1, .5)) +
+  ggdist::stat_pointinterval(aes(x = MT_spring / 1000, y = Naam_gebie, color = MT_mean_spring / 1000), .width = c(1, .5)) +
+  scale_color_viridis_c(name = "birds/km", option = "inferno", end = 0.85, breaks = c(200, 400, 600, 800), limits = c(150, 800)) +
+  scale_y_discrete(breaks = levels(res_summaries$Naam_gebie)[seq(1, length(levels(res_summaries$Naam_gebie)), by = 2)]) +
+  guides(x.sec = guide_axis_nested(key = key, bracket = "square"),
+         color = guide_colorbar(title = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1)),
+                                direction = "vertical",
+                                barwidth = 1.5,
+                                barheight = 10,
+                                position = "inside",
+                                draw.ulim = TRUE)) +
+  theme_minimal(base_size = 14) +
+  theme(strip.text.y.right = element_text(angle = 0),
+        axis.title.x = element_text(hjust = 1),
+        legend.direction = "vertical",
+        legend.background = element_rect(fill = "white", colour = NA),
+        legend.position = "right",
+        legend.position.inside = c(0.85, 0.3),
+        legend.title.align = 0,
+        legend.key.width = unit(0.7, "inches"),
+        legend.key.height = unit(0.2, "inches")) +
+  labs(title = "Seasonal migration traffic",
+       subtitle = "across candidate sites for wind energy in the province of North-Holland",
+       x = expression("\u00D7" ~ 1000 ~ "birds" %.% "km"^-1),
+       y = "Candidate site")
+ggsave(filename = "data/final_maps_plots/zoekgebieden.pdf", width = 8, height = 7)
+```
 
 da <- ban - bsn
 db <- bad - bsd
