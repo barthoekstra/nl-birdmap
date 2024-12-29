@@ -1304,6 +1304,54 @@ res_summaries %>%
   coord_cartesian(xlim = c(150, 825), expand = FALSE)
 ggsave(filename = "data/final_maps_plots/candidatesites.pdf", width = 8, height = 6)
 ```
+
+
+```{r}
+nl_buf_spatvector <- vect(nl_buf)
+
+ban <- terra::mask(ban, nl_buf_spatvector)
+bsn <- terra::mask(bsn, nl_buf_spatvector)
+
+map_to_df <- function(map, s, d, z) {
+  as.data.frame(map, xy = TRUE) %>%
+    rename("mt_mean" = "focal_mean") %>%
+    mutate(mt_mean = mt_mean / 1000,
+           season = s,
+           daytime = d,
+           zlim = z)
+}
+
+data <- mapply(map_to_df, map = list(ban, bsn), 
+               s = c("autumn", "spring"), 
+               d = c("night", "night"),
+               z = c(800, 800),
+               SIMPLIFY = FALSE) %>%
+  bind_rows()
+  
+data %>%
+  # filter(daytime == "night", season == "autumn") %>%
+  ggplot() +
+  geom_sf(data = nl, fill = "NA", color = alpha("black", 0.5), linewidth = .3) +
+  geom_raster(aes(x = x, y = y, fill = mt_mean)) +
+  scale_fill_viridis_c(limits = c(0, 900), oob = scales::squish, option = "inferno", na.value = 0,
+                       name = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1))) +
+  theme_void(base_size = 14) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("white", 0.9), linewidth = 2) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("white", 0.9), linewidth = 2) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = uncertainty %>% st_intersection(radar_buf %>% st_buffer(-1000)) %>% st_intersection(nl_buf), fill = "#00000025", 
+          color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radars, color = alpha("white", 0.75), size = 4) +
+  # geom_sf_pattern(aes(pattern = certainty),
+  #                 data = uncertainty %>% st_intersection(nl_buf),
+  #                 fill = alpha("black", 0.1), color = alpha("white", 0.1),
+  #                 pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
+  coord_sf(expand = FALSE) +
+  facet_wrap(~fct_relevel(season, "spring", "autumn"))
 ```
 
 da <- ban - bsn
