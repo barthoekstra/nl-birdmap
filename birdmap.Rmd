@@ -1283,7 +1283,7 @@ res_summaries %>%
   guides(x.sec = guide_axis_nested(key = key, bracket = "square"),
          color = guide_colorbar(title = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1)),
                                 direction = "vertical",
-                                barwidth = 1.5,
+                                barwidth = 1.2,
                                 barheight = 10,
                                 position = "inside",
                                 draw.ulim = TRUE)) +
@@ -1297,11 +1297,12 @@ res_summaries %>%
         legend.title.align = 0,
         legend.key.width = unit(0.7, "inches"),
         legend.key.height = unit(0.2, "inches")) +
-  labs(title = "Seasonal migration traffic",
-       subtitle = "across candidate sites for wind energy in the province of North-Holland",
+  labs(# title = "Seasonal migration traffic",
+       # subtitle = "across candidate sites for wind energy in the province of North-Holland",
        x = expression("\u00D7" ~ 1000 ~ "birds" %.% "km"^-1),
        y = "Candidate site")
-ggsave(filename = "data/final_maps_plots/zoekgebieden.pdf", width = 8, height = 7)
+ggsave(filename = "data/final_maps_plots/zoekgebieden.pdf", width = 8, height = 6)
+```
 ```
 
 da <- ban - bsn
