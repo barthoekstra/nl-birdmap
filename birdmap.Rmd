@@ -1046,9 +1046,6 @@ clip_to_radius <- function(raster_full, odim_code, radius) {
 r1 <- cbb_hrw %>% clip_to_radius("NLHRW", 100000) %>% project("EPSG:28992")
 r2 <- cbb_dhl %>% clip_to_radius("NLDHL", 100000) %>% project("EPSG:28992")
 
-# r1[r1 == 0] <- NA
-# r2[r2 == 0] <- NA
-
 bbox1 <- ext(r1)
 bbox2 <- ext(r2)
 
