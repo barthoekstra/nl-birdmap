@@ -884,7 +884,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     
     prc <- patches(rc)
     zrc <- zonal(cellSize(prc, unit = "km"), prc, sum, as.raster = TRUE)
-    src <- ifel(zrc < 1, NA, prc)
+    src <- ifel(zrc < 0.5, NA, prc)
     rcn <- rc
     rcn[is.na(src)] <-NA
     
