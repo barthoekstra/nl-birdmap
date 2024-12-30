@@ -1167,6 +1167,10 @@ print(mig_averages_radar)
 
 # Final maps
 
+With all that data in place, we can start to compile the figures. The altitude profile figures are in the radar-profiles.Rmd file.
+
+## Figure 3: Migration across candidate sites
+
 ```{r}
 ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25.tif")
 bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25.tif")
@@ -1307,6 +1311,7 @@ res_summaries %>%
 ggsave(filename = "data/final_maps_plots/candidatesites.pdf", width = 8, height = 6)
 ```
 
+## Figure 2: Overview maps of the Netherlands
 
 ```{r}
 nl_buf_spatvector <- vect(nl_buf)
@@ -1358,6 +1363,7 @@ data %>%
   theme(panel.spacing.x = unit(0, "lines"))
 ggsave("data/final_maps_plots/maps.pdf", width = 17, height = 10, device = cairo_pdf)
 ```
+## Figure 3: Overview map of North-Holland
 
 ```{r}
 nhol_bbox_expanded <- nhol_bbox
