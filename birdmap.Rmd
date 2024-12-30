@@ -1210,7 +1210,8 @@ gebieden <- geojsonsf::geojson_sf("data/gis/gemeenten.geojson") %>% st_transform
 
 bbc <- st_geometry(bb) %>% st_intersection(st_geometry(nl_buf))
 clut_bufc <- st_geometry(clut_buf) %>% st_intersection(st_geometry(nl_buf))
-uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(bbc, clut_bufc)))
+clut_manc <- st_geometry(clut_man) %>% st_intersection(st_geometry(nl_buf))
+uncertainty <- spatialEco::sf_dissolve(st_as_sf(st_union(st_union(bbc, clut_bufc), clut_manc)))
 uncertainty$certainty <- "Clutter affected"
 
 res_all <- st_read("data/gis/RES/RES_zoekgebieden_Actueel.shp") %>%
