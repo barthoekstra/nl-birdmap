@@ -1357,10 +1357,62 @@ data %>%
   theme(panel.spacing.x = unit(0, "lines"))
 ggsave("data/final_maps_plots/maps.pdf", width = 17, height = 10, device = cairo_pdf)
 ```
+
+```{r}
+nhol_bbox_expanded <- nhol_bbox
+padding <- -5000
+nhol_bbox_expanded["xmin"] <- nhol_bbox_expanded["xmin"] - padding - 20000
+nhol_bbox_expanded["xmax"] <- nhol_bbox_expanded["xmax"] + padding
+nhol_bbox_expanded["ymin"] <- nhol_bbox_expanded["ymin"] - padding
+nhol_bbox_expanded["ymax"] <- nhol_bbox_expanded["ymax"] + padding + 30000
+
+pol_bbox <- st_as_sf(st_as_sfc(st_bbox(nhol_bbox_expanded)))
+pol_nhol <- nhol_buf
+
+nhol_outside_mask <- st_difference(pol_bbox, pol_nhol)
+
+data %>%
+  filter(daytime == "night", season == "Autumn") %>%
+  ggplot() +
+  geom_sf(data = nl, fill = "NA", color = alpha("black", 0.5), linewidth = .3) +
+  geom_raster(aes(x = x, y = y, fill = mt_mean)) +
+  scale_fill_viridis_c(limits = c(0, 900), oob = scales::squish, option = "inferno", na.value = 0,
+                       name = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1))) +
+  theme_void(base_size = 14) +
+  geom_sf(data = nl_buf, fill = "NA", color = alpha("white", 1), linewidth = 4) +
+  geom_sf(data = st_union(radar_buf), fill = "NA", color = alpha("white", 0.9), linewidth = 2) +
+  geom_sf(data = nl, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = nl_buf, fill = "NA", color = "white", linewidth = .3) +
+  geom_sf(data = nhol, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  geom_sf(data = radar_buf, fill = "NA", color = alpha("white", 0.3), linewidth = .3) +
+  # geom_sf(data = uncertainty %>% st_intersection(radar_buf %>% st_buffer(-1000)) %>% st_intersection(nl_buf), fill = "#00000025", 
+  #         color = alpha("white", 0.3), linewidth = .3) +
   # geom_sf_pattern(aes(pattern = certainty),
-  #                 data = uncertainty %>% st_intersection(nl_buf),
-  #                 fill = alpha("black", 0.1), color = alpha("white", 0.1),
-  #                 pattern_density = 0.3, pattern_spacing = 0.005, pattern_fill = alpha("white", 0.1), pattern_color = NA) +
+  #                 data = uncertainty %>% st_intersection(radar_buf %>% st_buffer(-1000)) %>% st_intersection(nl_buf),
+  #                 fill = alpha("white", 0.15), color = alpha("black", 0.1),
+  #                 pattern_density = 0.025, pattern_spacing = 0.01, pattern_fill = alpha("black", 0.1), show.legend = TRUE) +
+  geom_sf_pattern(aes(pattern = certainty),
+                  data = uncertainty %>% st_intersection(st_union(radar_buf) %>% st_buffer(-1000)) %>% st_intersection(nl_buf),
+                  fill = alpha("black", 0.15), color = alpha("black", 0.15),
+                  pattern_density = 0.3, pattern_spacing = 0.01, pattern_fill = alpha("black", 0.1), pattern_color = NA,
+                  show.legend = TRUE) +
+  geom_sf(data = radars, color = alpha("white", 0.5), size = 2.5) +
+  new_scale_fill() +
+  new_scale_color() +
+  geom_sf(data = res, aes(fill = "Candidate sites", color = "Candidate sites"), linewidth = 0.3, show.legend = TRUE) +
+  scale_fill_manual(values = alpha("yellow", 0.5), name = "Candidate sites") +
+  scale_color_manual(values = alpha("black", 0.75), name = "Candidate sites") +
+  scale_pattern_manual(values = "stripe", name = "Clutter affected") +
+  # geom_sf(data = nhol_outside_mask, fill = alpha("black", 0.6), color = NA) +
+  coord_sf(xlim = c(nhol_bbox_expanded["xmin"], nhol_bbox_expanded["xmax"]),
+           ylim = c(nhol_bbox_expanded["ymin"], nhol_bbox_expanded["ymax"]),
+           expand = FALSE) +
+  # facet_wrap(~fct_relevel(season, "Spring", "Autumn")) +
+  annotation_scale(text_col = "black", style = "ticks", line_col = "black") +
+  theme(panel.margin.x = unit(0, "lines"))
+
+ggsave("data/final_maps_plots/northholland.pdf", width = 8, height = 10, device = cairo_pdf)
+```
   scale_pattern_manual(values = "stripe", name = "Onzekerheid") +
   coord_sf(expand = FALSE) +
   facet_wrap(~fct_relevel(season, "spring", "autumn"))
