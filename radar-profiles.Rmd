@@ -12,19 +12,15 @@ library(ggpie)
 
 data_wr <- read_csv("data/profiles/radar_profiles_full.csv") %>%
   rename("radar" = "odim_code", "height" = "hght") %>%
-  dplyr::select(date_trunc, radar, year_season, year, season, day_night, height, dens)
-
-data_br <- readRDS("data/profiles/altitude_profiles_birdradar.rds") %>%
-  mutate(radar = "artis") %>%
-  rename("height" = "hght") %>%
-  dplyr::select(date_trunc, radar, year_season, year, season, day_night, height, dens)
+  dplyr::select(date_trunc, radar, year_season, year, season, day_night, height, dens) %>%
+  drop_na()
 ```
 
 # Data overviews (vpts)
 
 ```{r}
 data_wr %>%
-  bind_rows(data_br) %>%
+  # bind_rows(data_br) %>%
   arrange(date_trunc, radar, day_night, height) %>%
   filter(day_night == "night", height <= 1000) %>%
   mutate(radar = case_when(radar == "nlhrw" ~ "Herwijnen",
@@ -146,7 +142,7 @@ ggsave("data/altitude_plots/densities_altitudes_combined.pdf", plot = plot_combi
 # Altitudes
 
 ```{r}
-altitudes_wr <- readRDS("altitude_profiles_weatherradar.rds") %>%
+altitudes_wr <- data_wr %>%
   mutate(day_night = if_else(day_night == "daylight", "day", "night")) %>%
   rename(height = hght) %>%
   filter(height < 1000) %>%
@@ -161,22 +157,7 @@ altitudes_wr <- readRDS("altitude_profiles_weatherradar.rds") %>%
                            odim_code == "nldhl" ~ "Den Haag")) %>%
   identity()
 
-altitudes_br <- readRDS("altitude_profiles_birdradar.rds") %>%
-  mutate(day_night = if_else(day_night == "daylight", "day", "night")) %>%
-  rename(height = hght) %>%
-  filter(height < 1000) %>%
-  group_by(season, height, year, day_night) %>%
-  summarise(dens = sum(as.numeric(dens_t), na.rm = TRUE)) %>%
-  group_by(season, height, day_night) %>%
-  summarise(dens = mean(dens, na.rm = TRUE)) %>%
-  group_by(season, day_night) %>%
-  mutate(dens_prop = (dens / sum(dens)) * 100,
-         odim_code = "artis",
-         radar = "ARTIS",
-         height_f = as.factor(height)) %>%
-  identity()
-
-altitudes <- bind_rows(altitudes_wr, altitudes_br) %>%
+altitudes <- altitudes_wr %>%
   mutate(rotorheight = if_else(height < 200, 1, 0),
          height_class = case_when(height < 200 ~ "0-200 m (rotortiphoogte)",
                                   height >= 200 & height < 400 ~ "201-400 m",
