@@ -144,33 +144,38 @@ ggsave("data/altitude_plots/densities_altitudes_combined.pdf", plot = plot_combi
 ```{r}
 altitudes_wr <- data_wr %>%
   mutate(day_night = if_else(day_night == "daylight", "day", "night")) %>%
-  rename(height = hght) %>%
-  filter(height < 1000) %>%
-  group_by(season, height, year, odim_code, day_night) %>%
+  # rename(height = hght) %>%
+  # filter(height < 1000) %>%
+  mutate(height = if_else(height >= 1000, 1000, height)) %>%
+  group_by(season, height, year, radar, day_night) %>%
   summarise(dens = sum(as.numeric(dens)) * 0.05, na.rm = TRUE) %>%
-  group_by(season, height, odim_code, day_night) %>%
+  group_by(season, height, radar, day_night) %>%
   summarise(dens = mean(dens, na.rm = TRUE)) %>%
-  group_by(odim_code, season, day_night) %>%
+  group_by(radar, season, day_night) %>%
   mutate(dens_prop = (dens / sum(dens)) * 100,
          height_f = as.factor(height),
-         radar = case_when(odim_code == "nlhrw" ~ "Herwijnen",
-                           odim_code == "nldhl" ~ "Den Haag")) %>%
+         radar = case_when(radar == "nlhrw" ~ "Herwijnen",
+                           radar == "nldhl" ~ "Den Helder")) %>%
   identity()
 
 altitudes <- altitudes_wr %>%
-  mutate(rotorheight = if_else(height < 200, 1, 0),
-         height_class = case_when(height < 200 ~ "0-200 m (rotortiphoogte)",
-                                  height >= 200 & height < 400 ~ "201-400 m",
-                                  height >= 400 & height < 600 ~ "401-600 m",
-                                  height >= 600 & height < 800 ~ "601-800 m",
-                                  height >= 800 & height < 1000 ~ "801-1000 m"),
-         dag_nacht = if_else(day_night == "day", "overdag", "'s nachts"),
-         seizoen = if_else(season == "autumn", "najaar", "voorjaar")) %>%
-  group_by(odim_code) %>%
-  mutate(label_point = if_else((height == 100 & odim_code == "nlhrw") | (height == 200 & odim_code == "nldhl") | 
-                                 (height == 300 & odim_code == "artis"), dens_prop, NA),
-         label = if_else((height == 100 & odim_code == "nlhrw") | (height == 200 & odim_code == "nldhl") |
-                           (height == 300 & odim_code == "artis"), radar, "", NA))
+  mutate(
+    rotorheight = if_else(height < 200, 1, 0),
+    height_class = case_when(
+      height < 200 ~ "0-200 m (EI height)",
+      height >= 200 & height < 400 ~ "201-400 m",
+      height >= 400 & height < 600 ~ "401-600 m",
+      height >= 600 & height < 800 ~ "601-800 m",
+      height >= 800 & height < 1000 ~ "801-1000 m",
+      height == 1000 ~ "1000+ m"
+    ),
+    height_class = factor(height_class, levels = c(
+      "0-200 m (EI height)", "201-400 m",
+      "401-600 m", "601-800 m", "801-1000 m", "1000+ m"
+    )),
+    dag_nacht = if_else(day_night == "day", "overdag", "'s nachts"),
+    seizoen = if_else(season == "autumn", "najaar", "voorjaar")
+  )
 
 # altitudes_summary <- altitudes %>%
 #   group_by(odim_code, season, day_night) %>%
@@ -182,56 +187,56 @@ altitudes <- altitudes_wr %>%
 ```
 
 ```{r}
-generate_plot_vertical_distribution <- function(alts, odim_code, season, day_night) {
+generate_plot_vertical_distribution <- function(alts, radar, season, day_night) {
   alts %>%
     filter(season == !!season, day_night == !!day_night) -> a
-  
-  cur_radar <- a %>% filter(odim_code == !!odim_code)
+
+  cur_radar <- a %>% filter(radar == !!radar)
   radar <- unique(cur_radar$radar)
   dag_nacht <- unique(cur_radar$dag_nacht)
   seizoen <- unique(cur_radar$seizoen)
   y_lim <- c(0, max(a$dens_prop))
-  
+
   ggplot() +
-    geom_col(aes(x = height, y = dens_prop, fill = as.factor(height_class)), data = a %>% filter(odim_code == !!odim_code), just = 0) +
-    geom_vline(xintercept = 200, color = "black", linewidth = 1) +
-    scale_fill_manual(values = c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735"), name = "Vlieghoogte", guide = "none") +
-    scale_x_continuous(breaks = c(0, 200, 400, 600, 800, 1000)) +
+    geom_col(aes(x = height, y = dens_prop, fill = factor(height_class, levels = c(
+      "0-200 m (EI height)", "201-400 m",
+      "401-600 m", "601-800 m", "801-1000 m", "1000+ m"
+    ))), data = a %>% filter(radar == !!radar), just = 0) +
+    geom_vline(xintercept = 200, color = "white", linewidth = 1) +
+    geom_vline(xintercept = 1000, color = "white", linewidth = 1) +
+    scale_fill_manual(values = c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735", "#060a19"), name = "Vlieghoogte", guide = "none") +
+    scale_x_continuous(breaks = c(0, 200, 400, 600, 800, 1000, 1050), labels = c("0", "200", "400", "600", "800", "1000", "1000+")) +
     scale_y_continuous(limits = y_lim) +
-    geom_line(aes(x = height + 25, y = dens_prop, color = radar, group = radar), data = a %>% filter(odim_code != !!odim_code)) +
-    geom_point(aes(x = height + 25, y = label_point, color = radar), size = 0.5, data = a %>% filter(odim_code != !!odim_code)) +
-    geom_text_repel(aes(x = height + 25, y = label_point, label = label, color = radar), data = a %>% filter(odim_code != !!odim_code),
-                    nudge_x = 150, nudge_y = 5, segment.linetype = 1, segment.curvature = -0.2, segment.angle = -20,
-                    size = 5) +
     scale_color_manual(values = c("gray70", "white"), guide = "none") +
-    coord_flip(expand = FALSE, xlim = c(0, 1000)) +
-    dark_theme_minimal(base_size = 16, base_family = "Helvetica") +
-    labs(x = "Hoogte", y = "% van vogeltrek", title = paste0("Hoogteprofiel ", radar, " radar"), subtitle = paste0(dag_nacht, " in het ", seizoen))
+    coord_flip(expand = FALSE, xlim = c(0, 1050)) +
+    theme_minimal(base_size = 16, base_family = "Helvetica") +
+    labs(x = "Flight altitude (m agl)", y = "% of migration", title = paste0("Hoogteprofiel ", radar, " radar"), subtitle = paste0(dag_nacht, " in het ", seizoen))
 }
 
-plot_flight_altitudes <- generate_plot_vertical_distribution(altitudes, "artis", "autumn", "night")
+plot_flight_altitudes <- generate_plot_vertical_distribution(altitudes, "Herwijnen", "autumn", "night")
+plot_flight_altitudes
 ```
 
 ```{r}
 generate_observations <- function(df, total_observations = 100) {
   df %>%
     mutate(observations = round(height_prop * total_observations)) %>%
-    select(-height_prop) %>%
+    dplyr::select(-height_prop) %>%
     uncount(observations) %>%
     arrange(desc(height_class))
 }
 
-generate_plot_vertical_distribution_pie <- function(alts, odim_code, season, day_night) {
+generate_plot_vertical_distribution_pie <- function(alts, radar, season, day_night) {
   alts_pie_classes <- alts %>%
-    filter(odim_code == !!odim_code, season == !!season, day_night == !!day_night) %>%
-    group_by(height_class, odim_code) %>%
+    filter(radar == !!radar, season == !!season, day_night == !!day_night) %>%
+    group_by(height_class, radar) %>%
     summarise(height_prop = sum(dens_prop)) %>%
-    group_by(height_class, odim_code) %>%
+    group_by(height_class, radar) %>%
     mutate(pos = cumsum(height_prop - height_prop / 2))
   
   alts %>%
-    filter(odim_code == !!odim_code, season == !!season, day_night == !!day_night) %>%
-    group_by(odim_code, season, day_night) %>%
+    filter(radar == !!radar, season == !!season, day_night == !!day_night) %>%
+    group_by(radar, season, day_night) %>%
     summarise(seasonal_altitude_mean = weighted.mean(height, w = dens),
               seasonal_altitude_peak = .$height[which.max(.$dens)],
               seasonal_density = round(sum(dens, na.rm = TRUE))) %>%
@@ -239,16 +244,18 @@ generate_plot_vertical_distribution_pie <- function(alts, odim_code, season, day
   
   alts_observations <- generate_observations(alts_pie_classes)
   
+  alts_observations$height_class <- forcats::fct_rev(alts_observations$height_class)
+  
   ggpie::ggdonut(group_key = "height_class", count_type = "full", 
                  data = alts_observations,
-                 label_info = "ratio", label_pos = "out", label_color = "white", label_size = 4, label_type = "circle", label_gap = 0.25,
+                 label_info = "ratio", label_pos = "out", label_color = "black", label_size = 4, label_type = "circle", label_gap = 0.25,
                  nudge_x = 0.4, nudge_y = 0.4,
                  border_size = 0, fill_color = NULL,
                  r0 = 2.2, donut.label = FALSE) +
-    scale_fill_manual(values = rev(c("#AF0000", "#1B4675", "#003A6D", "#07264E", "#061735")), name = "Vlieghoogte",
+    scale_fill_manual(values = rev(c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735", "#060a19")), name = "Vlieghoogte",
                       guide = guide_legend()) +
-    dark_theme_minimal(base_size = 16, base_family = "Helvetica") +
-    annotate("text", x = 0, y = 0, label = paste0(total_season_dens), color = "white", size = 7) +
+    theme_minimal(base_size = 16, base_family = "Helvetica") +
+    annotate("text", x = 0, y = 0, label = paste0(radar), color = "black", size = 7) +
     theme(panel.grid.major = element_blank(),
           axis.text.x = element_blank(),
           axis.text.y = element_blank(),
@@ -260,7 +267,8 @@ generate_plot_vertical_distribution_pie <- function(alts, odim_code, season, day
     labs(x = "", y = "")
 }
 
-plot_flight_altitudes_classes <- generate_plot_vertical_distribution_pie(altitudes, "artis", "autumn", "night")
+plot_flight_altitudes_classes <- generate_plot_vertical_distribution_pie(altitudes, "Herwijnen", "autumn", "night")
+plot_flight_altitudes_classes
 ```
 
 ```{r}
