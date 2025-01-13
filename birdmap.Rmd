@@ -1116,10 +1116,11 @@ vptsfiles_to_mt <- function(radar, year) {
   spring_vpts <- regularize_vpts(filter_vpts(year_vpts, spring_period[[1]], spring_period[[2]], night = TRUE), 
                                  date_min = as.POSIXct(spring_period[[1]]), date_max = as.POSIXct(spring_period[[2]]),
                                  interval = 300, fill = 3600)
+  saveRDS(spring_vpts, paste0("data/vpts_seasonal/", radar, year, "_spring.RDS"))
   autumn_vpts <- regularize_vpts(filter_vpts(year_vpts, autumn_period[[1]], autumn_period[[2]], night = TRUE), 
                                  date_min = as.POSIXct(autumn_period[[1]]), date_max = as.POSIXct(autumn_period[[2]]),
                                  interval = 300, fill = 3600)
-  
+  saveRDS(autumn_vpts, paste0("data/vpts_seasonal/", radar, year, "_autumn.RDS"))
   spring_vpi <- integrate_profile(spring_vpts)
   autumn_vpi <- integrate_profile(autumn_vpts)
   
