@@ -260,12 +260,12 @@ generate_plot_vertical_distribution_pie <- function(alts, odim_code, season, day
                  data = alts_observations,
                  label_info = "ratio", label_pos = "out", label_color = "black", label_size = 4,
                  label_type = "horizon", label_threshold = 0.1,
-                 border_size = 0, fill_color = NULL,
+                 border_size = 0.5, border_color = "white", fill_color = NULL,
                  r0 = 2.2, donut.label = FALSE) +
     scale_fill_manual(values = rev(c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735", "#060a19")), name = "Vlieghoogte",
                       guide = guide_legend()) +
     theme_minimal(base_size = 16, base_family = "Helvetica") +
-    annotate("text", x = 0, y = 0, label = paste0(str_to_title(season)), color = "black", size = 7) +
+    annotate("text", x = 0, y = 0, label = paste0(str_to_title(season)), color = "black", size = 6) +
     theme(panel.grid.major = element_blank(),
           axis.text.x = element_blank(),
           axis.text.y = element_blank(),
