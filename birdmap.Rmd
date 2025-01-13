@@ -1427,3 +1427,62 @@ res_summaries %>%
 ggsave(filename = "data/final_maps_plots/candidatesites.pdf", width = 8, height = 6)
 ```
 
+# Statistics
+
+Surface area of maps
+
+```{r}
+ar <- cellSize(ban, mask = TRUE)
+covered_by_map <- global(ar, sum, na.rm = TRUE) / 1000000  # m2 to km2
+
+# And as a proportion of the Netherlands
+surface_nl <- 41540
+covered_by_map / surface_nl
+```
+Nights with pulses identified
+
+```{r}
+vp_mtr_cum50 %>%
+  distinct(date_trunc) %>%
+  identity() %>%
+  nrow()
+
+# And per season
+vp_mtr_cum50 %>% 
+  group_by(season) %>% 
+  distinct(date_trunc) %>%
+  summarise(n_per_season = n())
+
+# And averages per season
+vp_mtr_cum50 %>%
+  group_by(year, season) %>%
+  distinct(date_trunc) %>%
+  summarise(n_per_season = n()) %>%
+  group_by(season) %>%
+  dplyr::select(season, n_per_season) %>%
+  skim()
+```
+
+Nights per season
+
+```{r}
+vp_mtr %>%
+  filter(day_night == "night") %>%
+  group_by(season, year, odim_code) %>%
+  summarise(nights_per_season = n()) %>%
+  group_by(season) %>%
+  summarise(nights_per_season_max = max(nights_per_season))
+```
+
+
+
+```{r}
+res_summaries %>%
+  filter(Naam_gebie != "Landelijk Noord") %>%
+  add_count(Naam_gebie) %>%
+  mutate(above_average = if_else(MT_mean_autumn >= nhol_average_ban[[1]], "yes", "no"),
+         above_90 = if_else(MT_mean_autumn >= quantile(MT_mean_autumn, .9), "yes", "no")) %>%
+  group_by(above_average) %>%
+  summarise(size = sum(n))
+```
+
