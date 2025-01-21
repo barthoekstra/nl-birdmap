@@ -1486,3 +1486,10 @@ res_summaries %>%
   summarise(size = sum(n))
 ```
 
+```{r}
+cv <- function(data) { sd(data) / mean(data) * 100}
+
+cv_spring <- cv(res_summaries$MT_spring)
+cv_autumn <- cv(res_summaries$MT_autumn)
+print(c(cv_spring, cv_autumn))
+```
