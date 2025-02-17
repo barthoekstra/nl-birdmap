@@ -58,7 +58,7 @@ vp_mtr_cum50
 Now that we have identified the nights, we can calculate the moment of sunset, to find the polar volume scan closest to 2.5hrs after sunset.
 
 ```{r}
-calculate_scantime <- function(r) {
+calculate_scantime <- function(r, hr = 2, m = 30) {
   if (r["odim_code"] == "nlhrw") {
     lat <- 51.8371
     lon <- 5.138
@@ -67,23 +67,22 @@ calculate_scantime <- function(r) {
     lat <- 52.9528
     lon <- 4.79061
   }
-
-  if (r["day_night"] == "daylight") {
-    scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]), keep = "sunrise")
-    scantime <- scantime$sunrise + hours(2)
-  }
+  
   if (r["day_night"] == "night") {
     scantime <- suncalc::getSunlightTimes(lat = lat, lon = lon, date = as.Date(r["date_trunc"]) - 1, keep = "sunset")
-    scantime <- scantime$sunset + hours(2) + minutes(30)
+    scantime <- scantime$sunset + hours(hr) + minutes(m)
   }
 
   scantime <- round_date(scantime, "5 mins")
 }
 
-scantimes <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_scantime, simplify = FALSE)))
+scantimes_std <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_scantime, simplify = FALSE)))
+scantimes_4hr <- as_datetime(unlist(apply(vp_mtr_cum50, MARGIN = 1, FUN = calculate_scantime, hr = 4, m = 0, simplify = FALSE)))
 
-vp_mtr_cum50$moment <- scantimes
-vp_mtr_cum50
+vp_mtr_cum50$`2h30m` <- scantimes_std
+vp_mtr_cum50$`4h00m` <- scantimes_4hr
+vp_mtr_cum50 %>%
+  pivot_longer(cols = c(`2h30m`, `4h00m`), names_to = "momenttype", values_to = "moment") -> vp_mtr_cum50
 ```
 ## Download peak time scans
 From the `moment` column in the `vp_mtr_cum50` dataframe, one can distill which pvol files have to be downloaded from the KNMI weather radar repository. At the UvA, we host those publicly available datasets locally on a private [minio](https://min.io) S3 server, but others can download the polar volume files from the KNMI directly: [Herwijnen](https://dataplatform.knmi.nl/dataset/radar-tar-vol-full-herwijnen-1-0) and [Den Helder](https://dataplatform.knmi.nl/dataset/radar-tar-volume-denhelder-1-0) after [registering](https://developer.dataplatform.knmi.nl) for a free API key.
