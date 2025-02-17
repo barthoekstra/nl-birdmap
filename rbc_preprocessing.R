@@ -24,7 +24,7 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
   rbc_plot_filename <- paste0(getwd(), "/", basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
   rbc_orig_filename <- paste0(getwd(), "/", basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
 
-  if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
+  if (file.exists(rbc_orig_filename) & file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
     return("exists")
   }
@@ -56,7 +56,8 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
 
   if (!file.exists(rbc_orig_filename)) {
     cat("Calculate original RBC\n")
-    rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+    # rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+    rbc_orig <- integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH")
     saveRDS(rbc_orig, file = rbc_orig_filename)
   } else {
     cat("Loading original RBC\n")
@@ -168,19 +169,24 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
 
   # 7. Calculate filtered RBC
   cat("Calculate filtered RBC\n")
-  rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+  if (!file.exists(rbc_filename)) {
+    rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
 
-  ## Add rain mask to RBC
-  rbc$data$rain <- as.vector(rain_elevations)
+    ## Add rain mask to RBC
+    rbc$data$rain <- as.vector(rain_elevations)
 
-  ## Add reflectivity correction to RBC
-  if (str_to_lower(pvol$radar) == "nlhrw") {
-    rbc$reflectivity <- pvol$reflectivity
+    ## Add reflectivity correction to RBC
+    if (str_to_lower(pvol$radar) == "nlhrw") {
+      rbc$reflectivity <- pvol$reflectivity
+    }
+
+    # 8. Save RBC
+    cat("Save RBC\n")
+    saveRDS(rbc, file = rbc_filename)
+  } else {
+    rbc <- readRDS(rbc_filename)
   }
 
-  # 8. Save RBC
-  cat("Save RBC\n")
-  saveRDS(rbc, file = rbc_filename)
 
   # 9. Save Plot
   cat("Save plot\n")
