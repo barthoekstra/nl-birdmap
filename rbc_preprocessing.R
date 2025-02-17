@@ -202,7 +202,7 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
     dark_theme_bw() &
     theme(axis.title.x = element_blank(),
           axis.title.y = element_blank()) -> rbc_plot
-  ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 8)
+  ggsave(rbc_plot, filename = rbc_plot_filename, width = 15, height = 8)
 }
 
 range_coverage <- function(scan) {
