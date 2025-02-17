@@ -10,7 +10,7 @@ library(patchwork)
 library(ggdark)
 library(vol2birdR)
 
-rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
+rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE, vp_only = FALSE) {
   rl <- 160000 # RBC range in m
 
   if (!cluttermap) {
@@ -49,6 +49,10 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
     vp <- read_vpfiles(vp_filename)
   }
   bioRad::sd_vvp_threshold(vp) <- 2
+
+  if (vp_only) {
+    return("vp only")
+  }
 
   if (!file.exists(rbc_orig_filename)) {
     cat("Calculate original RBC\n")
