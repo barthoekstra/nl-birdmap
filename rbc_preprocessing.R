@@ -504,8 +504,25 @@ remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol/" = 
 remaining_files_full <- files[!file.exists(remaining_files_full)]
 remaining_files <- remaining_files_full
 
-processing <- pbmclapply(remaining_files, rbc_filter, azim_method = "full", overwrite = FALSE,
-                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+processing <- pbmclapply(remaining_files, function(file) {
+  tryCatch(
+    rbc_filter(file, azim_method = "full", overwrite = FALSE),
+    error = function(e) {
+      message(paste("Error processing", file, ":", e$message))
+      return(NULL)  # Or return a custom error message
+    }
+  )
+}, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+
+# processing <- lapply(remaining_files, function(file) {
+#   tryCatch(
+#     rbc_filter(file, azim_method = "full", overwrite = FALSE),
+#     error = function(e) {
+#       message(paste("Error processing", file, ":", e$message))
+#       return(NULL)  # Or return a custom error message
+#     }
+#   )
+# })
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
 # Processing no-migration scans to range-bias corrected PPIs and diagnostic plots to identify clutter on occasions
