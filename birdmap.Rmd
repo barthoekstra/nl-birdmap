@@ -189,7 +189,7 @@ Having screened the scans now, we can see what proportion of seasonal migration 
 ```{r message=FALSE}
 vp_mtr_cum50_cl %>%
   filter(status == "Accepted") %>%
-  group_by(year, season, odim_code, day_night) %>%
+  group_by(year, season, odim_code, day_night, momenttype) %>%
   summarise(total_prop = sum(prop)) %>%
   mutate(
     season_date = case_when(
@@ -214,23 +214,25 @@ vp_mtr_cum50_cl %>%
   identity() -> sp
 
 sp %>%
-  group_by(odim_code, radar_nice) %>%
+  group_by(odim_code, radar_nice, momenttype) %>%
   summarise(
     mean_prop = mean(total_prop),
     min_prop = min(total_prop),
     max_prop = max(total_prop)
   ) %>%
+  arrange(momenttype) %>%
   ungroup() -> sp_summary
 
 sp_summary
 
 sp %>%
-  group_by(season) %>%
+  group_by(season, momenttype) %>%
   summarise(
     mean_prop = mean(total_prop),
     min_prop = min(total_prop),
     max_prop = max(total_prop)
   ) %>%
+  arrange(momenttype) %>%
   ungroup() -> sp_summary_seasonal
 
 sp_summary_seasonal
@@ -244,7 +246,7 @@ sp %>%
   geom_point(aes(x = season_date, y = total_prop, color = total_prop)) +
   geom_hline(data = sp_summary, aes(yintercept = mean_prop * 100), linetype = "dashed", color = "black") +
   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  facet_wrap(vars(radar_nice)) +
+  facet_wrap(vars(radar_nice, momenttype)) +
   xlab("Season") +
   ylab("% of migration mapped") +
   labs(title = "Seasonal proportion of migration included in map", color = "% of migration")
@@ -261,8 +263,8 @@ With all RBCs processed and all clean migration moments gathered, we can create 
 4. The adjustment factor `R` is above `10`.
 
 ```{r}
-stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans", 
-                       R_threshold = NULL, overwrite = FALSE, clutter_map = FALSE) {
+stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold_max = 2500, mean_method = "scans",
+                       R_threshold = NULL, overwrite = FALSE, clutter_map = FALSE, momenttype) { # Added momenttype
   # See if files exist already
   if (is.null(R_threshold)) {
     R_text <- "null"
@@ -274,14 +276,14 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
   if (clutter_map) {
     basepath <- "data/stacks_clutter/"
   }
-  
+
   filepath <- paste0(
     basepath,
-    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".RDS"
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, "_", momenttype, ".RDS"
   )
   rasterpath <- paste0(
     basepath,
-    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, ".tif"
+    str_to_upper(odimcode), "_", year_season, "_thresh_", threshold_max, "_avg_", mean_method, "_", daytime, "_", R_text, "_", momenttype, ".tif"
   )
 
   if (file.exists(filepath) && file.exists(rasterpath)) {
@@ -324,7 +326,7 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
   mVIR <- do.call(rbind, VIRs)
   mVIR[is.na(mVIR)] <- 0
   VIR_summed <- mVIR[1, ] * 0
-  
+
   mCLUT <- do.call(rbind, CLUTs)
   CLUT_summed <- colSums(mCLUT)
 
@@ -360,16 +362,17 @@ stack_rbcs <- function(rbcs, year_season, odimcode, daytime = "night", threshold
 g <- expand.grid(
   year_season = unique(vp_mtr_cum50_cl$year_season),
   day_night = unique(vp_mtr_cum50_cl$day_night),
-  odim_code = unique(vp_mtr_cum50_cl$odim_code)
+  odim_code = unique(vp_mtr_cum50_cl$odim_code),
+  momenttype = unique(vp_mtr_cum50_cl$momenttype),
+  stringsAsFactors = FALSE
 )
 
-generate_stacks <- function(year_season, day_night, odim_code,
-                            # th = c(500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000),
-                            th = 2500,
-                            R_threshold = 10,
-                            overwrite = FALSE) {
+generate_stacks <- function(year_season, day_night, odim_code, momenttype,
+                             th = 2500,
+                             R_threshold = 10,
+                             overwrite = FALSE) {
   vp_mtr_cum50_cl %>%
-    filter(status == "Accepted", year_season == !!year_season, day_night == !!day_night, odim_code == !!odim_code) %>%
+    filter(status == "Accepted", year_season == !!year_season, day_night == !!day_night, odim_code == !!odim_code, momenttype == !!momenttype) %>%
     drop_na() %>%
     arrange(top) %>%
     dplyr::select(rbcfile, prop) -> files
@@ -385,13 +388,14 @@ generate_stacks <- function(year_season, day_night, odim_code,
   lapply(gr, function(x) {
     stack_rbcs(
       rbcs = rbcs, year_season = year_season, odimcode = odim_code,
-      threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite
+      threshold_max = as.numeric(x["th"]), R_threshold = as.numeric(x["R_threshold"]), overwrite = overwrite,
+      momenttype = momenttype
     )
   })
 }
 
 processing_stacking <- pbmcmapply(generate_stacks,
-  year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code,
+  year_season = g$year_season, day_night = g$day_night, odim_code = g$odim_code, momenttype = g$momenttype,
   overwrite = TRUE, mc.cores = 6, mc.preschedule = FALSE
 )
 saveRDS(processing_stacking, paste0("data/logs/processing_stacking_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
@@ -407,31 +411,33 @@ final_stacks <- expand.grid(
   daytime = c("night"),
   th = 2500,
   mm = c("scans"),
-  R_threshold = 10
+  R_threshold = 10,
+  momenttype = unique(vp_mtr_cum50_cl$momenttype),
+  stringsAsFactors = FALSE
 )
 
 for (i in 1:nrow(final_stacks)) {
   fs <- final_stacks[i, ]
 
   rastfiles <- Sys.glob(
-    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif")
+    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, "_", fs$momenttype, ".tif")
   )
 
   stk <- terra::rast(lapply(rastfiles, function(x) {
     tryCatch(terra::rast(x, lyrs = "VIR"),
-      error = function(err) {
-        print(err)
-      }
+             error = function(err) {
+               print(err)
+             }
     )
   }))
   rmean <- app(stk, mean)
   names(rmean) <- "vir_mean"
-  
+
   stk <- terra::rast(lapply(rastfiles, function(x) {
     tryCatch(terra::rast(x, lyrs = "CLUT"),
-      error = function(err) {
-        print(err)
-      }
+             error = function(err) {
+               print(err)
+             }
     )
   }))
   csum <- app(stk, sum)
@@ -440,7 +446,7 @@ for (i in 1:nrow(final_stacks)) {
 
   file_out <- paste0(
     "data/final_stacks/", fs$daytime, "/", fs$mm, "/",
-    fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, ".tif"
+    fs$odim_code, "_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, "_", fs$momenttype, ".tif"
   )
   if (!dir.exists(dirname(file_out))) dir.create(dirname(file_out), recursive = TRUE)
 
@@ -484,14 +490,16 @@ final_stacks <- expand.grid(
   th = c(2500),
   mm = c("scans"),
   zmax = c(750),
-  R_threshold = 10
+  R_threshold = 10,
+  momenttype = unique(vp_mtr_cum50_cl$momenttype),
+  stringsAsFactors = FALSE
 )
 
 fstacks <- asplit(final_stacks, 1)
 
 save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
   fs <- x
-  
+
   basepath_stacks <- "data/final_stacks/"
   if (cluttermap) basepath_stacks <- "data/final_stacks_clutter/"
   basepath_maps <- "data/maps/"
@@ -501,14 +509,14 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
 
   fstacks <- paste0(
     basepath_stacks, fs["daytime"], "/", fs["mm"], "/", c("NLHRW", "NLDHL"), "_",
-    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["R_threshold"], ".tif"
+    fs["season"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["daytime"], "_", fs["R_threshold"], "_", fs["momenttype"], ".tif"
   )
   fstacks <- str_replace_all(fstacks, " ", "")
   clutstacks <- paste0(tools::file_path_sans_ext(fstacks), "_clut.tif")
   clutstacks <- str_replace_all(clutstacks, " ", "")
   mapfile <- paste0(
     basepath_maps, fs["daytime"], "/", fs["mm"],
-    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".tif"
+    "/NL_", fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], "_", fs["momenttype"], ".tif"
   )
   mapfile <- str_replace_all(mapfile, " ", "")
 
@@ -520,7 +528,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
 
   mapfile_plot <- paste0(
     basepath_plots, fs["zmax"], "/", fs["daytime"], "/", fs["mm"], "/NL_",
-    fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], ".png"
+    fs["season"], "_", fs["daytime"], "_thresh_", fs["th"], "_avg_", fs["mm"], "_", fs["R_threshold"], "_", fs["momenttype"], ".png"
   )
   mapfile_plot <- str_replace_all(mapfile_plot, " ", "")
   if (!dir.exists(dirname(mapfile_plot))) dir.create(dirname(mapfile_plot), recursive = TRUE)
@@ -541,7 +549,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
 
   m <- mosaic(sprc(r1_resampled, r2_resampled), fun = max)
   writeRaster(m, mapfile, overwrite = TRUE)
-  
+
   r1_clut <- rast(clutstacks[1]) %>% project("EPSG:28992")
   r2_clut <- rast(clutstacks[2]) %>% project("EPSG:28992")
 
@@ -550,7 +558,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
 
   m_clut <- mosaic(sprc(r1_resampled_clut, r2_resampled_clut), fun = max)
   writeRaster(m_clut, paste0(tools::file_path_sans_ext(mapfile), "_clut.tif"), overwrite = TRUE)
-  
+
   maps <- c(m, m_clut)
 
   data <- raster::as.data.frame(maps, xy = TRUE)
@@ -569,7 +577,7 @@ save_map <- function(x, overwrite = FALSE, cluttermap = FALSE, mode = "dark") {
   zlim <- c(0, as.numeric(fs["zmax"]))
   tod <- if_else(fs["daytime"] == "night", "by Night", "by Day")
   title <- paste0(str_to_sentence(fs["season"]), " ", tod)
-  
+
   if (mode == "dark") {
     ggplot(data) +
       geom_raster(aes(x = x, y = y, fill = vir_mean / 11)) +
@@ -836,6 +844,7 @@ clutter_maps <- expand.grid(season = c("spring", "autumn"),
                             # n = c(13, 17, 21, 25, 29),
                             s = c(4),
                             n = c(25),
+                            momenttype = unique(vp_mtr_cum50_cl$momenttype),
                             stringsAsFactors = FALSE)
 # clutter_maps <- expand.grid(season = c("spring", "autumn"),
 #                             daytime = c("night"),
@@ -851,12 +860,12 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
   for (m in cm) {
     t <- as.numeric(m["thresh"])
     r <- rast(paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
-                     "_thresh_2500_avg_scans_10.tif"))
+                     "_thresh_2500_avg_scans_10_", m["momenttype"], ".tif"))
     if (is.null(custom_clutter)) {
       rc <- rast(paste0("data/maps_clutter/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
                         "_thresh_2500_avg_scans_10.tif"))
       rc2 <- rast(paste0("data/maps/", m["daytime"], "/scans/NL_", m["season"], "_", m["daytime"],
-                        "_thresh_2500_avg_scans_10_clut.tif"))
+                        "_thresh_2500_avg_scans_10_", m["momenttype"], "_clut.tif"))
       print(rc2)
       # Create denoised clutter map
       rc[rc < t] <- NA
@@ -917,12 +926,12 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     
     # Save plot
     fp_clutplot <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
-                          "_thresh_", t, "_s_", s, "_n_", n, "_clut.png")
+                          "_thresh_", t, "_s_", s, "_n_", n, "_", m["momenttype"], "_clut.png")
     ggsave(pclut, width = 7, height = 4, filename = fp_clutplot)
     
     # Save clutter map
     fp_clut <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
-                      "_thresh_", t, "_s_", s, "_n_", n, "_clutter.tif")
+                      "_thresh_", t, "_s_", s, "_n_", n, "_", m["momenttype"], "_clutter.tif")
     writeRaster(rcn, fp_clut, overwrite = TRUE)
     
     # Create final bird map
@@ -939,7 +948,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     
     # Save bird map
     fp_bird <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
-                      "_thresh_", t, "_s_", s, "_n_", n, ".tif")
+                      "_thresh_", t, "_s_", s, "_n_", n, "_", m["momenttype"], ".tif")
     writeRaster(b, fp_bird, overwrite = TRUE)
     
     # Plots for quick overviews
@@ -976,7 +985,7 @@ create_final_map_set <- function(map_grid, buffer_patches = NULL,
     
     # Save plot
     fp_plot <- paste0("data/final_maps/NL_", m["season"], "_", m["daytime"], 
-                      "_thresh_", t, "_s_", s, "_n_", n, ".png")
+                      "_thresh_", t, "_s_", s, "_n_", n, "_", m["momenttype"], ".png")
     ggsave(p, filename = fp_plot)
     
     # Log
@@ -1000,8 +1009,8 @@ hrw_bb <- read_csv("data/beam_blockage/hrw.csv", col_types = "dddddd") %>%
 dhl_bb <- read_csv("data/beam_blockage/dhl.csv", col_types = "dddddd") %>%
   dplyr::select(x, y, CBB)
 
-exrast_hrw <- rast("data/final_stacks/night/scans/NLHRW_autumn_thresh_2500_avg_scans_night_10.tif")
-exrast_dhl <- rast("data/final_stacks/night/scans/NLDHL_autumn_thresh_2500_avg_scans_night_10.tif")
+exrast_hrw <- rast("data/final_stacks/night/scans/NLHRW_autumn_thresh_2500_avg_scans_night_10_2h30m.tif")
+exrast_dhl <- rast("data/final_stacks/night/scans/NLDHL_autumn_thresh_2500_avg_scans_night_10_2h30m.tif")
 
 v_hrw <- vect(hrw_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_hrw)
 v_dhl <- vect(dhl_bb, geom = c("x", "y"), crs = "epsg:4326") %>% project(exrast_dhl)
@@ -1144,18 +1153,18 @@ cum_mts <- bind_rows(cum_mts) %>%
   )) %>%
   filter(!(season == "spring" & year == 2017) & !(season == "autumn" & year == 2023))
 
-cummts
+cum_mts
 ```
 And now we calculate averages from both radars combined for both spring and autumn.
 
 ```{r}
-cummts %>%
+cum_mts %>%
   group_by(season) %>%
   summarise(mt_mean = mean(mt)) %>%
   arrange(season) %>%
   identity() -> mig_averages
 
-cummts %>%
+cum_mts %>%
   group_by(season, radar) %>%
   summarise(mt_mean = mean(mt)) %>%
   arrange(radar, season) %>%
@@ -1172,8 +1181,8 @@ With all that data in place, we can start to compile the figures. The altitude p
 ## Figure data prep
 
 ```{r}
-ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25.tif")
-bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25.tif")
+ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")
+bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif")
 
 ban <- ban / global(ban, mean, na.rm = TRUE)[[1]]
 bsn <- bsn / global(bsn, mean, na.rm = TRUE)[[1]]
