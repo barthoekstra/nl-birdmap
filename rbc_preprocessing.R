@@ -20,9 +20,9 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
   }
   names(basedir) <- c("rbc", "png", "orig")
 
-  rbc_filename <- paste0(basedir["rbc"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
-  rbc_plot_filename <- paste0(basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
-  rbc_orig_filename <- paste0(basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
+  rbc_filename <- paste0(getwd(), "/", basedir["rbc"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
+  rbc_plot_filename <- paste0(getwd(), "/", basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
+  rbc_orig_filename <- paste0(getwd(), "/", basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
 
   if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
@@ -40,7 +40,7 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
 
   # 1. Original RBC
   cat("Calculate vertical profile RBC\n")
-  vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
+  vp_filename <- paste0(getwd(), "/", "data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
   if (!file.exists(vp_filename)) {
     cat("Calculating vp\n")
     vp <- calculate_vp(pvolfile, vpfile = vp_filename, n_layer = 100, h_layer = 50)
@@ -94,7 +94,7 @@ rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cl
     cat("Removing azimuth-effect for Herwijnen radar\n")
     pvol <- remove_azimuth_effect(pvol, method = azim_method)
     azim_plot <- plot_azimuth_effect(pvol)
-    azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
+    azimuth_plot_filename <- paste0(getwd(), "/", "data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
     ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
   } else {
     cat("Skipping removing azimuth-effect for Den Helder radar\n")
