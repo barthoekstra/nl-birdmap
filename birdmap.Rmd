@@ -27,6 +27,7 @@ library(ggfx)
 library(gghalves)
 library(pbmcapply)
 library(legendry)
+library(skimr)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
@@ -1160,18 +1161,11 @@ And now we calculate averages from both radars combined for both spring and autu
 ```{r}
 cum_mts %>%
   group_by(season) %>%
-  summarise(mt_mean = mean(mt)) %>%
-  arrange(season) %>%
-  identity() -> mig_averages
+  skim(mt)
 
 cum_mts %>%
   group_by(season, radar) %>%
-  summarise(mt_mean = mean(mt)) %>%
-  arrange(radar, season) %>%
-  identity() -> mig_averages_radar
-
-print(mig_averages)
-print(mig_averages_radar)
+  skim(mt)
 ```
 
 # Final maps
@@ -1450,10 +1444,12 @@ covered_by_map / surface_nl
 Nights with pulses identified
 
 ```{r}
-vp_mtr_cum50 %>%
+unique_nights <- vp_mtr_cum50 %>%
   distinct(date_trunc) %>%
   identity() %>%
   nrow()
+
+print(unique_nights)
 
 # And per season
 vp_mtr_cum50 %>% 
