@@ -228,15 +228,11 @@ sp_summary
 
 sp %>%
   group_by(season, momenttype) %>%
-  summarise(
-    mean_prop = mean(total_prop),
-    min_prop = min(total_prop),
-    max_prop = max(total_prop)
-  ) %>%
-  arrange(momenttype) %>%
-  ungroup() -> sp_summary_seasonal
+  skim(total_prop) %>%
+  arrange(momenttype)
 
-sp_summary_seasonal
+unique_moments <- vp_mtr_cum50_cl %>% filter(momenttype == "2h30m", status == "Accepted") %>% count()
+print(unique_moments)
 ```
 
 ```{r}
@@ -1175,8 +1171,11 @@ With all that data in place, we can start to compile the figures. The altitude p
 ## Figure data prep
 
 ```{r}
-ban <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")
-bsn <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif")
+ban_dens <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")
+bsn_dens <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif")
+
+ban <- ban_dens
+bsn <- bsn_dens
 
 ban <- ban / global(ban, mean, na.rm = TRUE)[[1]]
 bsn <- bsn / global(bsn, mean, na.rm = TRUE)[[1]]
@@ -1231,11 +1230,22 @@ res_all %>%
          ID = row_number()) %>%
   identity() -> res
 
+radar_buf %>%
+  st_intersection(nl_buf) %>%
+  st_difference(clut_bufc) %>%
+  spatialEco::sf_dissolve() %>%
+  identity() -> nl_clut
+
 ban_extract <- extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
 bsn_extract <- extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
 
 nhol_average_ban <- extract(ban, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
 nhol_average_bsn <- extract(bsn, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+
+nl_average_ban <- extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+nl_average_bsn <- extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+print(paste0("Average bird density spring: ", nl_average_bsn / 11))  # Outside of clutter areas
+print(paste0("Average bird density autumn: ", nl_average_ban / 11))
 ```
 
 ## Figure 2: Overview maps of the Netherlands
