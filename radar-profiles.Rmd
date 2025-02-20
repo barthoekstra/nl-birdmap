@@ -307,7 +307,7 @@ hrw3 <- generate_altitude_plot(altitudes, "nlhrw", "autumn", "night")
 dhl1 <- generate_altitude_plot(altitudes, "nldhl", "spring", "night")
 dhl3 <- generate_altitude_plot(altitudes, "nldhl", "autumn", "night")
 
-plot_grid(hrw1, hrw3, dhl1, dhl3, ncol = 2 , rel_widths = c(4, 4)) # rel_widths = c(4, 1.5, 4)
+plot_grid(dhl1, dhl3, hrw1, hrw3, ncol = 2 , rel_widths = c(4, 4)) # rel_widths = c(4, 1.5, 4)
 ggsave("data/altitude_plots/vertical_profiles.pdf", width = 4*2, height = 8)
 ```
 
