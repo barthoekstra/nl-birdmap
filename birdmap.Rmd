@@ -1243,16 +1243,27 @@ radar_buf %>%
   spatialEco::sf_dissolve() %>%
   identity() -> nl_clut
 
+nhol %>%
+  st_difference(clut_bufc) %>%
+  identity() -> nhol_clut
+
 ban_extract <- extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
 bsn_extract <- extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
 
-nhol_average_ban <- extract(ban, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
-nhol_average_bsn <- extract(bsn, vect(nhol), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+nhol_average_ban <- extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+nhol_average_bsn <- extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+```
 
-nl_average_ban <- extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
-nl_average_bsn <- extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
-print(paste0("Average bird density spring: ", nl_average_bsn / 11))  # Outside of clutter areas
-print(paste0("Average bird density autumn: ", nl_average_ban / 11))
+```{r}
+extract(ban_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+extract(bsn_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+```
+
+```{r}
+extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean)
+# print(paste0("Average bird density spring: ", nl_average_bsn / 11))  # Outside of clutter areas
+# print(paste0("Average bird density autumn: ", nl_average_ban / 11))
 ```
 
 ## Figure 2: Overview maps of the Netherlands
@@ -1304,7 +1315,9 @@ data %>%
   coord_sf(expand = FALSE) +
   facet_wrap(~fct_relevel(season, "Spring", "Autumn")) +
   annotation_scale(text_col = "black", style = "ticks", line_col = "black") +
-  theme(panel.spacing.x = unit(0, "lines"))
+  theme(panel.spacing.x = unit(0, "lines"),
+        legend.position = "bottom", 
+        legend.key.width = unit(1.5, "cm"))
 ggsave("data/final_maps_plots/maps.pdf", width = 17, height = 10, device = cairo_pdf)
 ```
 
@@ -1352,8 +1365,8 @@ data %>%
   new_scale_fill() +
   new_scale_color() +
   geom_sf(data = res, aes(fill = "Candidate sites", color = "Candidate sites"), linewidth = 0.3, show.legend = TRUE) +
-  scale_fill_manual(values = alpha("yellow", 0.5), name = "Candidate sites") +
-  scale_color_manual(values = alpha("black", 0.75), name = "Candidate sites") +
+  scale_fill_manual(values = alpha("yellow", 0.85), name = "Candidate sites") +
+  scale_color_manual(values = alpha("black", 0.85), name = "Candidate sites") +
   scale_pattern_manual(values = "stripe", name = "Clutter affected") +
   # geom_sf(data = nhol_outside_mask, fill = alpha("black", 0.6), color = NA) +
   coord_sf(xlim = c(nhol_bbox_expanded["xmin"], nhol_bbox_expanded["xmax"]),
@@ -1382,8 +1395,11 @@ ban_extract %>%
                                 "Havengebied West" ~ "Havengeb. West",
                                 "Zuiderlegmeerpolder-oost" ~ "Zuiderlegmeerp.",
                                 "Kade Velsen Noord" ~ "Velsen Noord",
-                                "ten noorden ring A10 - westelijk gebied" ~ "Ring A10 Noord",
+                                "ten noorden ring A10 - westelijk gebied" ~ "Ring A10 Noord W",
+                                "ten noorden ring A10" ~ "Ring A10 Noord",
                                 "Zon en wind in  Noordzeekanaalgebied" ~ "Z&W Noordzknl.",
+                                "Waterleidingenterrein / Gein" ~ "Waterl. / Gein",
+                                "Strandeiland/Buiteneiland West" ~ "Buiteneil. West",
                                 .default = Naam_gebie),
          Naam_gebie = as.factor(Naam_gebie),
          Naam_gebie = fct_reorder(Naam_gebie, MT_autumn),
@@ -1409,19 +1425,26 @@ ban_extract %>%
   ungroup() %>%
   identity() -> res_summaries
 
-key <- key_range_manual(start = c(min(res_summaries$MT_spring) / 1000, min(res_summaries$MT_autumn) / 1000),
+key <- legendry::key_range_manual(start = c(min(res_summaries$MT_spring) / 1000, min(res_summaries$MT_autumn) / 1000),
                         end = c(max(res_summaries$MT_spring) / 1000, max(res_summaries$MT_autumn) / 1000),
                         name = c("Spring", "Autumn"))
 
+print(extract(bsn, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
+print(extract(ban, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
+
+print(res_summaries %>% skim(MT_autumn))
+print(res_summaries %>% skim(MT_spring))
+
 res_summaries %>%
   ggplot() +
-  geom_vline(color = "#00000030", xintercept = nhol_average_ban[[1]] / 1000) +
-  geom_vline(color = "#00000030", xintercept = nhol_average_bsn[[1]] / 1000) +
+  geom_vline(color = "#00000075", xintercept = nhol_average_ban[[1]] / 1000, linetype = "longdash") +
+  geom_vline(color = "#00000075", xintercept = nhol_average_bsn[[1]] / 1000, linetype = "longdash") +
   ggdist::stat_pointinterval(aes(x = MT_autumn / 1000, y = Naam_gebie, color = MT_mean_autumn / 1000), .width = c(1, .5)) +
   ggdist::stat_pointinterval(aes(x = MT_spring / 1000, y = Naam_gebie, color = MT_mean_spring / 1000), .width = c(1, .5)) +
-  scale_color_viridis_c(name = "birds/km", option = "inferno", end = 0.85, breaks = c(200, 400, 600, 800), limits = c(150, 800)) +
+  scale_color_viridis_c(name = "birds/km", option = "inferno", end = 0.85, breaks = c(0, 250, 500, 750), limits = c(0, 900)) +
   scale_y_discrete(breaks = levels(res_summaries$Naam_gebie)[seq(1, length(levels(res_summaries$Naam_gebie)), by = 2)]) +
-  guides(x.sec = guide_axis_nested(key = key, bracket = "square"),
+  guides(#x.sec = guide_axis_nested(key = key, bracket = "square"),
+         x.sec = legendry::guide_axis_nested(key, bracket = "square"),
          color = guide_colorbar(title = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1)),
                                 direction = "vertical",
                                 barwidth = 1.2,
@@ -1444,6 +1467,39 @@ res_summaries %>%
        y = "Candidate site") +
   coord_cartesian(xlim = c(150, 825), expand = FALSE)
 ggsave(filename = "data/final_maps_plots/candidatesites.pdf", width = 8, height = 6)
+
+res_summaries %>%
+  ggplot() +
+  geom_vline(color = "#00000075", xintercept = nhol_average_ban[[1]] / 1000, linetype = "longdash") +
+  geom_vline(color = "#00000075", xintercept = nhol_average_bsn[[1]] / 1000, linetype = "longdash") +
+  ggdist::stat_pointinterval(aes(x = MT_autumn / 1000, y = Naam_gebie, color = MT_mean_autumn / 1000), .width = c(1, .5)) +
+  ggdist::stat_pointinterval(aes(x = MT_spring / 1000, y = Naam_gebie, color = MT_mean_spring / 1000), .width = c(1, .5)) +
+  scale_color_viridis_c(name = "birds/km", option = "inferno", end = 0.85, breaks = c(0, 250, 500, 750), limits = c(0, 900)) +
+  # scale_y_discrete(breaks = levels(res_summaries$Naam_gebie)[seq(1, length(levels(res_summaries$Naam_gebie)), by = 2)]) +
+  guides(#x.sec = guide_axis_nested(key = key, bracket = "square"),
+         x.sec = legendry::guide_axis_nested(key, bracket = "square"),
+         color = guide_colorbar(title = expression(atop("Migration traffic", "\u00D7" ~ 1000 ~ "birds" %.% "km"^-1)),
+                                direction = "vertical",
+                                barwidth = 1.2,
+                                barheight = 10,
+                                position = "inside",
+                                draw.ulim = TRUE)) +
+  theme_minimal(base_size = 14) +
+  theme(strip.text.y.right = element_text(angle = 0),
+        axis.title.x = element_text(hjust = 1),
+        legend.direction = "vertical",
+        legend.background = element_rect(fill = "white", colour = NA),
+        legend.position = "right",
+        legend.position.inside = c(0.85, 0.3),
+        legend.title = element_text(hjust = 0),
+        legend.key.width = unit(0.7, "inches"),
+        legend.key.height = unit(0.2, "inches")) +
+  labs(# title = "Seasonal migration traffic",
+       # subtitle = "across candidate sites for wind energy in the province of North-Holland",
+       x = expression("\u00D7" ~ 1000 ~ "birds" %.% "km"^-1),
+       y = "Candidate site") +
+  coord_cartesian(xlim = c(150, 825), expand = FALSE)
+ggsave(filename = "data/final_maps_plots/candidatesites_all.pdf", width = 8, height = 12)
 ```
 
 # Statistics
