@@ -183,6 +183,13 @@ vp_mtr_cum50 %>%
   identity() -> vp_mtr_cum50_cl
 ```
 
+```{r}
+vp_mtr_cum50_cl %>% filter(momenttype == "2h30m") %>% nrow()
+vp_mtr_cum50_cl %>% filter(momenttype == "2h30m") %>% pull(status) %>% table()
+vp_mtr_cum50_cl %>% filter(momenttype == "2h30m", status == "Rejected") %>% pull(season) %>% table()
+```
+
+
 ## Seasonal proportion of migration covered
 
 Having screened the scans now, we can see what proportion of seasonal migration is captured in the clean scans.
