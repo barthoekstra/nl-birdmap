@@ -1641,3 +1641,27 @@ ggplot() +
 ggsave(filename = "nl_tiny.pdf", width = 1.75, height = 2)
 ```
 
+## Differences between 2.5hrs and 4hrs
+
+```{r}
+ban_dens_2h30 <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")
+bsn_dens_2h30 <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif")
+
+ban_dens_4h <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_4h00m.tif")
+bsn_dens_4h <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_4h00m.tif")
+
+ban_2h30 <- ban_dens_2h30 / global(ban_dens_2h30, mean, na.rm = TRUE)[[1]]
+ban_4h <- ban_dens_4h / global(ban_dens_4h, mean, na.rm = TRUE)[[1]]
+
+difban <- ban_2h30 - ban_4h
+
+difban %>%
+  as.data.frame() %>%
+  ggplot() +
+  geom_raster(aes(x = x, y = y, fill = focal_mean), data = difban) +
+  scale_fill_gradientn(colours=coolwarm(100), limits = c(-1, 1))
+
+bsn <- bsn / global(bsn, mean, na.rm = TRUE)[[1]]
+```
+
+
