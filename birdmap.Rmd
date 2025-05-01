@@ -482,6 +482,91 @@ for (i in 1:nrow(final_stacks)) {
   writeRaster(clut_masked, paste0(tools::file_path_sans_ext(file_out), "_clut.tif"), overwrite = TRUE)
 }
 ```
+## Sensitivity analysis of spatial patterns using leave-one-out jack-knife
+
+```{r}
+final_stacks <- expand.grid(
+  odim_code = c("NLHRW", "NLDHL"),
+  season = c("spring", "autumn"),
+  daytime = c("night"),
+  th = 2500,
+  mm = c("scans"),
+  R_threshold = 10,
+  momenttype = c("2h30m"),
+  stringsAsFactors = FALSE
+)
+
+overall_correlations <- list()
+
+for (i in 1:nrow(final_stacks)) {
+  fs <- final_stacks[i, ]
+
+  rastfiles <- Sys.glob(
+    paste0("data/stacks/", str_to_upper(fs$odim_code), "_*_", fs$season, "_thresh_", fs$th, "_avg_", fs$mm, "_", fs$daytime, "_", fs$R_threshold, "_", fs$momenttype, ".tif")
+  )
+
+  stk <- terra::rast(lapply(rastfiles, function(x) {
+    tryCatch(terra::rast(x, lyrs = "VIR"),
+             error = function(err) {
+               print(err)
+             }
+    )
+  }))
+  if (fs$odim_code == "NLHRW") {
+    lat <- 51.8371
+    lon <- 5.138
+  }
+  if (fs$odim_code == "NLDHL") {
+    lat <- 52.9528
+    lon <- 4.79061
+  }
+
+  circle_radius <- 100000 # 100 km in meters
+
+  # Create a simple features (sf) point object
+  center_point <- st_sfc(st_point(c(lon, lat)))
+
+  # Buffer the point to create a circular polygon
+  st_crs(center_point) <- 4326
+  center_point <- st_transform(center_point, crs = st_crs(stk))
+  circle <- st_buffer(center_point, dist = circle_radius)
+  masked_raster <- st_rasterize(st_as_sf(circle), st_as_stars(st_bbox(stk, values = NA_real_), nx = 640, ny = 640))
+  masked_raster[masked_raster == 0] <- NA
+  
+  stk_masked <- terra::mask(stk, as(masked_raster, "SpatRaster"))
+  stk_full_mean <- mean(stk_masked)
+  
+  correlations <- numeric(nlyr(stk_masked))
+  
+  for (j in 1:nlyr(stk_masked)) {
+    stk_subset <- stk_masked[[-j]]
+    stk_mean_subset <- mean(stk_subset)
+    
+    correlations[j] <- cor(values(stk_mean_subset, na.rm = TRUE), 
+                           values(stk_full_mean, na.rm = TRUE), use = "complete.obs")
+  }
+  
+  names(correlations) <- 2017:2022
+  
+  overall_correlations[[i]] <- list(
+    radar = fs$odim_code,
+    season = fs$season,
+    correlations = correlations
+  )
+}
+
+cor_df <- do.call(rbind, lapply(overall_correlations, function(entry) {
+  data.frame(
+    radar = entry$radar,
+    season = entry$season,
+    correlation = entry$correlations,
+    year = names(entry$correlations)
+  )
+}))
+summary(cor_df)
+```
+
+
 
 ## Combine radar, time stacks to national-level maps
 
