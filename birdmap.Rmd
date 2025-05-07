@@ -483,7 +483,7 @@ for (i in 1:nrow(final_stacks)) {
 }
 ```
 
-## Sensitivity analysis of spatial patterns using leave-one-out jack-knife
+## Uncertainty analysis of spatial patterns using leave-one-out jack-knife
 
 ```{r}
 final_stacks <- expand.grid(
@@ -572,7 +572,7 @@ cor_df %>%
   skim(correlation)
 ```
 
-## Sensitivity analysis of spatial patterns 2h30m vs. 4h00m
+## Uncertainty analysis of spatial patterns 2h30m vs. 4h00m
 
 ```{r}
 final_stacks <- expand.grid(
