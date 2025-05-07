@@ -1355,6 +1355,18 @@ And now we calculate averages from both radars combined for both spring and autu
 ```{r}
 cum_mts %>%
   group_by(season) %>%
+  summarise(mt_mean = mean(mt)) %>%
+  arrange(season) %>%
+  identity() -> mig_averages
+
+cum_mts %>%
+  group_by(season, radar) %>%
+  summarise(mt_mean = mean(mt)) %>%
+  arrange(radar, season) %>%
+  identity() -> mig_averages_radar
+
+cum_mts %>%
+  group_by(season) %>%
   skim(mt)
 
 cum_mts %>%
