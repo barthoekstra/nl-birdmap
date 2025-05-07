@@ -507,7 +507,12 @@ files <- list.files(path = "data/pvol", full.names = TRUE)
 files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh", ".gitkeep")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.RDS"))
-remaining_files_full <- files[!file.exists(remaining_files_full)]
+remaining_files_full_pngs <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.png"))
+
+remaining_files_full_pngs <- basename(remaining_files_full_pngs)
+existing_pngs <- basename(Sys.glob("data/rbc_png/full/*/*"))
+
+remaining_files_full <- files[!file.exists(remaining_files_full) | !remaining_files_full_pngs %in% existing_pngs]
 remaining_files <- remaining_files_full
 
 processing <- pbmclapply(remaining_files, function(file) {
