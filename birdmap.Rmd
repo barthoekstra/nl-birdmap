@@ -28,6 +28,7 @@ library(gghalves)
 library(pbmcapply)
 library(legendry)
 library(skimr)
+library(ggrepel)
 options(ggpattern_use_R4.1_masks = TRUE)
 ```
 
@@ -1451,6 +1452,16 @@ res_all %>%
          ID = row_number()) %>%
   identity() -> res
 
+turbine_all <- st_read("data/gis/rivm_20250101_windturbines_ashoogte.shp") %>%
+  st_transform(c) %>%
+  st_intersection(st_geometry(nl_buf)) %>%
+  st_difference(clut_bufc)
+
+turbine_nhol <- st_read("data/gis/rivm_20250101_windturbines_ashoogte.shp") %>%
+  st_transform(c) %>%
+  st_intersection(st_geometry(nhol)) %>%
+  st_difference(clut_bufc)
+
 radar_buf %>%
   st_intersection(nl_buf) %>%
   st_difference(clut_bufc) %>%
@@ -1461,21 +1472,39 @@ nhol %>%
   st_difference(clut_bufc) %>%
   identity() -> nhol_clut
 
-ban_extract <- extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
-bsn_extract <- extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+ban_extract <- terra::extract(ban, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+bsn_extract <- terra::extract(bsn, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+wpr_extract <- terra::extract(wpr, vect(res), raw = TRUE) %>% as.data.frame() %>% rename(power_density = `NLD_power-density_100m`)
 
-nhol_average_ban <- extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
-nhol_average_bsn <- extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+trb_ban_extract <- terra::extract(ban, vect(turbine_all), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+trb_bsn_extract <- terra::extract(bsn, vect(turbine_all), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+trb_wpr_extract <- terra::extract(wpr, vect(turbine_all), raw = TRUE) %>% as.data.frame() %>% rename(power_density = `NLD_power-density_100m`)
+
+trb_ban_nhol <- terra::extract(ban, vect(turbine_nhol), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+trb_bsn_nhol <- terra::extract(bsn, vect(turbine_nhol), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+trb_wpr_nhol <- terra::extract(wpr, vect(turbine_nhol), raw = TRUE) %>% as.data.frame() %>% rename(power_density = `NLD_power-density_100m`)
+
+ban_nhol <- terra::extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+bsn_nhol <- terra::extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+wpr_nhol <- terra::extract(wpr, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% rename(power_density = `NLD_power-density_100m`)
+
+ban_nl <- terra::extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% rename(MT_autumn = focal_mean)
+bsn_nl <- terra::extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% rename(MT_spring = focal_mean)
+wpr_nl <- terra::extract(wpr, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% rename(power_density = `NLD_power-density_100m`)
+
+
+nhol_average_ban <- terra::extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
+nhol_average_bsn <- terra::extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
 ```
 
 ```{r}
-extract(ban_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
-extract(bsn_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+terra::extract(ban_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+terra::extract(bsn_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
 ```
 
 ```{r}
-extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
-extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean)
+terra::extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # summarise(avg = mean(focal_mean, na.rm = TRUE))
+terra::extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean)
 # print(paste0("Average bird density spring: ", nl_average_bsn / 11))  # Outside of clutter areas
 # print(paste0("Average bird density autumn: ", nl_average_ban / 11))
 ```
@@ -1598,6 +1627,7 @@ ggsave("data/final_maps_plots/northholland.pdf", width = 8, height = 10, device 
 ```{r}
 ban_extract %>%
   cbind(bsn_extract %>% dplyr::select(MT_spring)) %>%
+  cbind(wpr_extract %>% dplyr::select(power_density)) %>%
   left_join(res, by = "ID") %>%
   arrange(desc(MT_autumn)) %>%
   mutate(Naam_gebie = case_match(Naam_gebie,
@@ -1643,8 +1673,8 @@ key <- legendry::key_range_manual(start = c(min(res_summaries$MT_spring) / 1000,
                         end = c(max(res_summaries$MT_spring) / 1000, max(res_summaries$MT_autumn) / 1000),
                         name = c("Spring", "Autumn"))
 
-print(extract(bsn, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
-print(extract(ban, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
+print(terra::extract(bsn, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
+print(terra::extract(ban, vect(nhol_clut), raw = TRUE) %>% skim(focal_mean))
 
 print(res_summaries %>% skim(MT_autumn))
 print(res_summaries %>% skim(MT_spring))
@@ -1714,6 +1744,185 @@ res_summaries %>%
        y = "Candidate site") +
   coord_cartesian(xlim = c(150, 825), expand = FALSE)
 ggsave(filename = "data/final_maps_plots/candidatesites_all.pdf", width = 8, height = 12)
+```
+
+## Power density - Netherlands
+
+```{r}
+bind_cols(trb_wpr_extract, trb_ban_extract, trb_bsn_extract) %>%
+  dplyr::select(ID = `ID...1`, power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Existing sites") %>%
+  identity() -> wpr_trb
+  
+bind_cols(wpr_nl, ban_nl, bsn_nl) %>%
+  dplyr::select(power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Background") %>%
+  identity() -> wpr_bkg
+
+bind_cols(wpr_extract, ban_extract, bsn_extract) %>%
+  dplyr::select(power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Candidate sites") %>%
+  identity() -> wpr_res
+
+bind_rows(wpr_trb, wpr_bkg, wpr_res) %>%
+  mutate(season = fct_relevel(season, c("Spring", "Autumn")),
+         MT = MT / 1000) %>%
+  identity() -> wpr_data
+
+wpr_means <- wpr_data %>%
+  group_by(season) %>%
+  summarise(MT_mean = mean(MT, na.rm = TRUE),
+            pd_mean = mean(power_density, na.rm = TRUE))
+
+set.seed(42)
+ggplot() +
+  geom_bin_2d(aes(x = MT, y = power_density, fill = after_stat(ndensity)),
+              data = wpr_data %>% filter(type == "Background") %>% dplyr::select(MT, power_density, season), bins = 25) +
+  geom_hdr_lines(aes(x = MT, y = power_density, color = type),
+                 data = wpr_data %>% filter(type %in% c("Existing sites", "Candidate sites")),
+                 probs = c(0.95, 0.8, 0.5), show.legend = TRUE) +
+  geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white") +
+  geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white") +
+  # geom_hline(yintercept = mean(wpr_data$power_density, na.rm = TRUE), color = "white") +
+  # scale_alpha_manual(values = c(0.6, 0.8, 1)) +
+  scale_color_manual(values = c("red", "white")) +
+  scale_fill_viridis_c() +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) +
+  scale_y_continuous(n.breaks = 4) +
+  # coord_cartesian(expand = FALSE, ) +
+  coord_fixed(ratio = 0.904) +
+  labs(x = "Migration passage [birds/km]",
+       y = "Power density [W/m2]") +
+  # guides(alpha = "none") +
+  facet_wrap(vars(season, type), nrow = 1)
+ggsave("powerdensity_vs_migpassage_nl.pdf", width = 17, height = 5)
+```
+## Power density - North-Holland
+
+```{r}
+bind_cols(wpr_extract, ban_extract, bsn_extract) %>%
+  dplyr::select(ID = `ID...1`, power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Candidate sites") %>%
+  identity() -> wpr_res_nhol
+  
+bind_cols(wpr_nhol, ban_nhol, bsn_nhol) %>%
+  dplyr::select(power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Background") %>%
+  identity() -> wpr_bkg_nhol
+
+bind_cols(trb_wpr_nhol, trb_ban_nhol, trb_bsn_nhol) %>%
+  dplyr::select(power_density, MT_autumn, MT_spring) %>%
+  pivot_longer(cols = c(MT_autumn, MT_spring), names_to = "season", values_to = "MT") %>%
+  mutate(season = case_when(season == "MT_autumn" ~ "Autumn",
+                            season == "MT_spring" ~ "Spring"),
+         type = "Existing turbines") %>%
+  identity() -> wpr_trb_nhol
+
+bind_rows(wpr_trb_nhol, wpr_bkg_nhol, wpr_res_nhol) %>%
+  mutate(season = fct_relevel(season, c("Spring", "Autumn")),
+         MT = MT / 1000) %>%
+  identity() -> wpr_data
+
+wpr_means <- wpr_data %>%
+  group_by(season) %>%
+  summarise(MT_mean = mean(MT, na.rm = TRUE),
+            pd_mean = mean(power_density, na.rm = TRUE))
+
+wpr_means_res <- wpr_data %>%
+  left_join(res, by = "ID") %>%
+  filter(type == "Candidate sites", season == "Autumn") %>%
+  mutate(Naam_gebie = case_match(Naam_gebie,
+                              "Knooppunt Holendrecht" ~ "Holendrecht",
+                              "Diemen Wind B" ~ "Diemen B",
+                              "Diemen Wind C" ~ "Diemen C",
+                              "IJburg Diemerpark" ~ "IJburg Diemerp.",
+                              "Zeeburgereiland" ~ "Zeeburgereil.",
+                              "Havengebied West" ~ "Havengeb. West",
+                              "Zuiderlegmeerpolder-oost" ~ "Zuiderlegmeerp.",
+                              "Kade Velsen Noord" ~ "Velsen Noord",
+                              "ten noorden ring A10 - westelijk gebied" ~ "Ring A10 Noord W",
+                              "ten noorden ring A10" ~ "Ring A10 Noord",
+                              "Zon en wind in  Noordzeekanaalgebied" ~ "Z&W Noordzknl.",
+                              "Waterleidingenterrein / Gein" ~ "Waterl. / Gein",
+                              "Strandeiland/Buiteneiland West" ~ "Buiteneil. West",
+                              .default = Naam_gebie),
+         Naam_gebie = case_match(Naam_gebie,
+                                 "Z&W Noordzknl." ~ "Z&W Noordzknl.",
+                                 "Strandeiland/Buiteneiland Oost" ~ "Strandeiland/Buiteneiland Oost",
+                                 "Landelijk Noord" ~ "Landelijk Noord",
+                                 "Oosterwijzend" ~ "Oosterwijzend",
+                                 "Amsterdam-Zuid - Kop van Amstelscheg" ~ "Amsterdam-Zuid - Kop van Amstelscheg",
+                                 "Alton" ~ "Alton",
+                                 .default = NULL),
+       Naam_gebie = as.factor(Naam_gebie)) %>%
+  group_by(ID, type, Naam_gebie) %>%
+  summarise(MT_mean = mean(MT, na.rm = TRUE),
+            pd_mean = mean(power_density, na.rm = TRUE),
+            area_size = n()) %>%
+  identity()
+
+set.seed(42)
+ggplot() +
+  geom_bin_2d(aes(x = MT, y = power_density, fill = after_stat(ndensity)),
+              data = wpr_data %>% filter(type == "Background") %>% dplyr::select(MT, power_density, season), bins = 25) +
+  geom_hdr_lines(aes(x = MT, y = power_density, color = type),
+                 data = wpr_data %>% filter(type %in% c("Existing turbines", "Candidate sites")),
+                 probs = c(0.95, 0.8, 0.5), show.legend = TRUE) +
+  geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white") +
+  geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white") +
+  # geom_hline(yintercept = mean(wpr_data$power_density, na.rm = TRUE), color = "white") +
+  # scale_alpha_manual(values = c(0.6, 0.8, 1)) +
+  scale_color_manual(values = c("red", "white")) +
+  scale_fill_viridis_c() +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) +
+  scale_y_continuous(n.breaks = 4) +
+  # coord_cartesian(expand = FALSE, ) +
+  coord_fixed(ratio = 0.904) +
+  labs(x = "Migration passage [birds/km]",
+       y = "Wind power density [W/m2]") +
+  # guides(alpha = "none") +
+  facet_wrap(vars(season, type), nrow = 1)
+ggsave("powerdensity_vs_migpassage_nhol.pdf", width = 17, height = 5)
+
+ggplot() +
+  geom_bin_2d(aes(x = MT, y = power_density, fill = after_stat(ndensity)),
+              data = wpr_data %>% filter(type == "Background", season == "Autumn") %>% 
+                dplyr::select(MT, power_density, season), bins = 30) +
+  # geom_hdr_lines(aes(x = MT, y = power_density, color = type),
+  #                data = wpr_data %>% filter(type == "Candidate sites", season == "Autumn"),
+  #                probs = c(0.95, 0.8, 0.5), show.legend = TRUE) +
+  geom_point(aes(x = MT_mean, y = pd_mean, size = area_size), data = wpr_means_res, color = "red") +
+  geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white") +
+  geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white") +
+  geom_label_repel(aes(x = MT_mean, y = pd_mean, label = Naam_gebie), data = wpr_means_res, min.segment.length = 0, force = 100) +
+  # scale_color_manual(values = c("red", "white")) +
+  scale_fill_viridis_c() +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) +
+  scale_y_continuous(n.breaks = 4) +
+  # coord_cartesian(expand = FALSE, ) +
+  coord_fixed(ratio = 0.904) +
+  labs(x = "Migration passage [birds/km]",
+       y = "Wind power density [W/m2]")
+ggsave("powerdensity_vs_migpassage_nhol_autumn.pdf", width = 6, height = 6)
+  # guides(alpha = "none")
 ```
 
 # Statistics
