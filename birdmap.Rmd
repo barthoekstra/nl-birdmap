@@ -1405,6 +1405,10 @@ clut_buf <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_clutter.ti
   st_transform(c)
 clut_man <- geojsonsf::geojson_sf("data/gis/manual_clutter.geojson") %>% st_transform(c) %>% filter(id < 5)
 
+wpr <- rast("data/gis/NLD_power-density_100m.tif") %>% 
+  project(ban) %>%
+  resample(ban, method = "average")
+
 bb <- rast("data/beam_blockage/NL_beamblockage.tif")
 bb[bb < 0.05] <- NA
 bb <- bb %>%
