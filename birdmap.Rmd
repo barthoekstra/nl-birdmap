@@ -1338,7 +1338,10 @@ vpts_grid <- expand_grid(
 
 cum_mts <- pbmclapply(asplit(vpts_grid, 1), function(x) vptsfiles_to_mt(x[1], x[2]), mc.cores = 5)
 saveRDS(cum_mts, "data/vpts/cum_mts.RDS")
+```
 
+```{r}
+cum_mts <- readRDS("data/vpts/cum_mts.RDS")
 cum_mts <- bind_rows(cum_mts) %>%
   pivot_longer(cols = c(spring_mt, autumn_mt), names_to = "season", values_to = "mt") %>%
   mutate(season = case_match(
