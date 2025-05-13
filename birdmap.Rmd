@@ -1754,6 +1754,14 @@ wpr_crop_nhol <- terra::mask(wpr, vect(nhol)) %>% as.data.frame(xy = TRUE) %>% r
 mapdata <- left_join(ban_crop_nhol, wpr_crop_nhol, by = join_by(x, y))
 reverse_nhol <- st_difference(st_as_sfc(nhol_bbox), st_union(nhol))
 
+round_any <- function(x, accuracy, f = round){f(x / accuracy) * accuracy}
+
+mapdata %>%
+  mutate(MT_autumn_disp = round_any(MT_autumn, 25000),
+         power_density_disp = round_any(power_density, 25)) %>%
+  bi_class(x = "MT_autumn_disp", y = "power_density_disp", "equal", dim = 4) %>%
+  identity() -> data
+
 data <- bi_class(mapdata, x = "MT_autumn", y = "power_density", "equal", dim = 4)
 
 nhol_simple <- rmapshaper::ms_simplify(nhol, keep = 0.07)
@@ -1804,8 +1812,11 @@ bind_cols(wpr_nhol, ban_nhol, bsn_nhol) %>%
 
 bind_rows(wpr_bkg_nhol, wpr_res_nhol) %>%
   mutate(season = fct_relevel(season, c("Spring", "Autumn")),
-         MT = MT / 1000) %>%
-  bi_class(x = "MT", y = "power_density", "equal", dim = 4) %>%
+         MT = MT / 1000,
+         MT_disp = round_any(MT, 25) + 25/2,
+         power_density_disp = round_any(power_density, 25) + 25/2) %>%
+  # bi_class(x = "MT", y = "power_density", "equal", dim = 4) %>%
+  bi_class(x = "MT_disp", y = "power_density_disp", "equal", dim = 4) %>%
   identity() -> wpr_data
 
 wpr_means <- wpr_data %>%
@@ -1832,12 +1843,12 @@ wpr_means_res <- wpr_data %>%
                               "Strandeiland/Buiteneiland West" ~ "Buiteneil. West",
                               .default = Naam_gebie),
          Naam_gebie = case_match(Naam_gebie,
-                                 "Z&W Noordzknl." ~ "Z&W Noordzknl.",
-                                 "Strandeiland/Buiteneiland Oost" ~ "Strandeiland/Buiteneiland Oost",
+                                 # "Z&W Noordzknl." ~ "Z&W Noordzknl.",
+                                 # "Strandeiland/Buiteneiland Oost" ~ "Strandeiland/Buiteneiland Oost",
                                  "Landelijk Noord" ~ "Landelijk Noord",
                                  "Oosterwijzend" ~ "Oosterwijzend",
-                                 "Amsterdam-Zuid - Kop van Amstelscheg" ~ "Amsterdam-Zuid - Kop van Amstelscheg",
-                                 "Alton" ~ "Alton",
+                                 # "Amsterdam-Zuid - Kop van Amstelscheg" ~ "Amsterdam-Zuid - Kop van Amstelscheg",
+                                 # "Alton" ~ "Alton",
                                  .default = NULL),
        Naam_gebie = as.factor(Naam_gebie)) %>%
   group_by(season, ID, type, Naam_gebie) %>%
@@ -1852,23 +1863,26 @@ wpr_means_res <- wpr_means_res %>%
   bi_class(x = "MT_mean", y = "pd_mean", "equal", dim = 4)
 
 distrib <- ggplot() +
-  geom_bin_2d(aes(x = MT, y = power_density, fill = bi_class),
-              data = wpr_data %>% filter(type == "Background") %>% 
-                dplyr::select(MT, power_density, season, bi_class), bins = 30, show.legend = FALSE) +
+  geom_raster(aes(x = MT_disp, y = power_density_disp, fill = bi_class),
+              data = wpr_data %>% filter(type == "Background") %>%
+                dplyr::select(MT_disp, power_density_disp, season, bi_class) %>%
+                distinct(),
+              hjust = 0, vjust = 0, show.legend = FALSE) +
+  geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white", linewidth = 0.75) +
+  geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white", linewidth = 0.75) +
   geom_point(aes(x = MT_mean, y = pd_mean, size = area_size), data = wpr_means_res, pch = 21, fill = "red", color = "white", stroke = 1.5) +
   bi_scale_fill(pal = "DkViolet2", dim = 4) +
-  geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white") +
-  geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white") +
   geom_label_repel(aes(x = MT_mean, y = pd_mean, label = Naam_gebie), data = wpr_means_res, min.segment.length = 0, force = 100) +
-  theme_minimal(base_size = 14) +
+  theme_light(base_size = 14) +
   scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) +
+  scale_size(range = c(2, 8)) +
   scale_y_continuous(n.breaks = 4) +
   # coord_cartesian(expand = FALSE, ) +
   coord_fixed(ratio = 1) +
   labs(x = "Migration passage [birds/km]",
        y = "Wind power density [W/m2]") +
   guides(size = "none") +
-  facet_wrap(vars(season))
+  facet_wrap(vars(season), axes = "all_x", axis.labels = "all_x")
 
 distrib
 
