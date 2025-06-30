@@ -11,11 +11,11 @@ Bart Hoekstra<sup>1</sup>, Bart Kranstauber<sup>1</sup>, Maja Bradarić<sup>1</s
 <sup>4</sup> Royal Netherlands Air Force, P.O Box 8762, 4820 BB Breda, The Netherlands<br />
 
 ## Data
-This repository contains all data needed as initial input data. Unfortunately, given the large data volume of weather radar data, it is impractical to share this here, but the data is freely available via the [KNMI open data portal](https://dataplatform.knmi.nl/) and can be accessed via thet [{getRad} R package](https://aloftdata.github.io/getRad/). The analysis notebooks show how files should be structured for the analysis and the folder structure has been retained by adding empty `.gitkeep` files to this repository.
+This repository contains all data needed as initial input data, or GIS data to recreate the figures. Unfortunately, given the large data volume of weather radar data, it is impractical to share this here, but the data is freely available via the [KNMI open data portal](https://dataplatform.knmi.nl/) and can be accessed via the new [{getRad} R package](https://aloftdata.github.io/getRad/). The analysis notebooks show how files should be structured for the analysis and the folder structure has been retained by adding empty `.gitkeep` files to this repository.
 
-A short summary table with of input files, their contents and sources is listed below. All files are located in `data` and the respective subfolders.
+A short summary table with of input files, their contents and sources is listed below. All files are located in `data` and the respective subfolders. A dash indicated in the source column indicates the data is created for the purpose of this study.
 
-| Filename | Folder | Source | Contents | URL | Comment |
+| Filename | Subfolder | Source | Contents | URL | Comment |
 |----------|--------|--------|----------|-----|---------|
 |`vp_mtr_ordered_seasonal_day_`<br />`night_migration.csv`|        |-        |Ranked nightly migration activity across radars derived from vertical profiles of birds     |     |Main input file for the study, also contains information on daytime migration|
 |`dhl.csv`          |`beam_blockage`        |-       |Beam blockage for Den Helder radar          |     |Calculated using `beam-blockage/beamblockage.ipynb`          |
@@ -33,3 +33,4 @@ A short summary table with of input files, their contents and sources is listed 
 |`rivm_20250101_windturbines_`<br />`ashoogte.shp` | `gis` | RIVM|Shapefile with turbine locations and dimension information|[URL](https://www.nationaalgeoregister.nl/geonetwork/srv/api/records/23d0d402-a6d9-47c5-a6f3-d7f7fb35cb79?language=all)
 |`altitude_profiles_weatherradar.rds`| `profiles` |-|Aggregated altitude profiles from both Dutch weather radars| |
 |`altitude_profiles_weatherradar.sql`| `profiles` |-|SQL Query to aggregate altitude profiles from both Dutch weather radars| |
+|`RES_zoekgebieden_*`|`gis/RES/`|Province of North-Holland|Shapefiles with information on the search areas/candidate sites for renewable energy developments|[URL](https://apps.vertigisstudio.eu/web/?app=194abc647f794375873dcd563932dd8e)|
