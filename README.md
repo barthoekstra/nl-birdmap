@@ -42,7 +42,7 @@ A short summary table with of input files, their contents and sources is listed 
 |`Radars-100km-Buffer.geojson`| `gis` |-|.geojson with the area enclosed within 100km from both Dutch weather radars| |
 |`Radars.geojson`| `gis` |-|.geojson with the locations from both Dutch weather radars| |
 |`gemeenten.geojson`| `gis` | CBS |.geojson with the Dutch municipalities| [URL](https://www.cbs.nl/nl-nl/dossier/nederland-regionaal/geografische-data/cbs-gebiedsindelingen)| Not in final version of manuscript|
-|`rivm_20250101_windturbines_`<br />`ashoogte.shp` | `gis` | RIVM|Shapefile with turbine locations and dimension information|[URL](https://www.nationaalgeoregister.nl/geonetwork/srv/api/records/23d0d402-a6d9-47c5-a6f3-d7f7fb35cb79?language=all)
+|`rivm_20250101_windturbines_`<br />`ashoogte.shp` | `gis` | RIVM|Shapefile with turbine locations and dimension information|[URL](https://www.nationaalgeoregister.nl/geonetwork/srv/api/records/23d0d402-a6d9-47c5-a6f3-d7f7fb35cb79?language=all) | Not in final version of manuscript|
 |`altitude_profiles_weatherradar.rds`| `profiles` |-|Aggregated altitude profiles from both Dutch weather radars| |
 |`altitude_profiles_weatherradar.sql`| `profiles` |-|SQL Query to aggregate altitude profiles from both Dutch weather radars| |
 |`RES_zoekgebieden_*`|`gis/RES/`|Province of North-Holland|Shapefiles with information on the search areas/candidate sites for renewable energy developments|[URL](https://apps.vertigisstudio.eu/web/?app=194abc647f794375873dcd563932dd8e)|
