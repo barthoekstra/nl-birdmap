@@ -8,9 +8,10 @@ library(sf)
 library(raster)
 library(patchwork)
 library(ggdark)
+library(vol2birdR)
 
-visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE) {
-  rl <- 160000
+rbc_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged", cluttermap = FALSE, vp_only = FALSE) {
+  rl <- 160000 # RBC range in m
 
   if (!cluttermap) {
     basedir <- c("data/rbc/", "data/rbc_png/", "data/rbc_orig/")
@@ -19,11 +20,11 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
   }
   names(basedir) <- c("rbc", "png", "orig")
 
-  rbc_filename <- paste0(basedir["rbc"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
-  rbc_plot_filename <- paste0(basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
-  rbc_orig_filename <- paste0(basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
+  rbc_filename <- paste0(getwd(), "/", basedir["rbc"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".RDS")
+  rbc_plot_filename <- paste0(getwd(), "/", basedir["png"], tools::file_path_sans_ext(basename(pvolfile)), "_", azim_method, ".png")
+  rbc_orig_filename <- paste0(getwd(), "/", basedir["orig"], tools::file_path_sans_ext(basename(pvolfile)), "_orig.RDS")
 
-  if (file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
+  if (file.exists(rbc_orig_filename) & file.exists(rbc_filename) & file.exists(rbc_plot_filename) & !overwrite) {
     cat("RBC already exists, skipping...\n")
     return("exists")
   }
@@ -39,7 +40,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
 
   # 1. Original RBC
   cat("Calculate vertical profile RBC\n")
-  vp_filename <- paste0("data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
+  vp_filename <- paste0(getwd(), "/", "data/vp/", tools::file_path_sans_ext(basename(pvolfile)), "_vp.h5")
   if (!file.exists(vp_filename)) {
     cat("Calculating vp\n")
     vp <- calculate_vp(pvolfile, vpfile = vp_filename, n_layer = 100, h_layer = 50)
@@ -49,10 +50,14 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
   }
   bioRad::sd_vvp_threshold(vp) <- 2
 
+  if (vp_only) {
+    return("vp only")
+  }
 
   if (!file.exists(rbc_orig_filename)) {
     cat("Calculate original RBC\n")
-    rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+    # rbc_orig <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+    rbc_orig <- integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH")
     saveRDS(rbc_orig, file = rbc_orig_filename)
   } else {
     cat("Loading original RBC\n")
@@ -90,7 +95,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
     cat("Removing azimuth-effect for Herwijnen radar\n")
     pvol <- remove_azimuth_effect(pvol, method = azim_method)
     azim_plot <- plot_azimuth_effect(pvol)
-    azimuth_plot_filename <- paste0("data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
+    azimuth_plot_filename <- paste0(getwd(), "/", "data/rbc/", tools::file_path_sans_ext(basename(pvolfile)), "_azimuth_", azim_method, ".png")
     ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
   } else {
     cat("Skipping removing azimuth-effect for Den Helder radar\n")
@@ -164,19 +169,24 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
 
   # 7. Calculate filtered RBC
   cat("Calculate filtered RBC\n")
-  rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
+  if (!file.exists(rbc_filename)) {
+    rbc <- suppressWarnings(integrate_to_ppi(pvol, vp, xlim = c(-rl, rl), ylim = c(-rl, rl), res = 500, param = "DBZH"))
 
-  ## Add rain mask to RBC
-  rbc$data$rain <- as.vector(rain_elevations)
+    ## Add rain mask to RBC
+    rbc$data$rain <- as.vector(rain_elevations)
 
-  ## Add reflectivity correction to RBC
-  if (str_to_lower(pvol$radar) == "nlhrw") {
-    rbc$reflectivity <- pvol$reflectivity
+    ## Add reflectivity correction to RBC
+    if (str_to_lower(pvol$radar) == "nlhrw") {
+      rbc$reflectivity <- pvol$reflectivity
+    }
+
+    # 8. Save RBC
+    cat("Save RBC\n")
+    saveRDS(rbc, file = rbc_filename)
+  } else {
+    rbc <- readRDS(rbc_filename)
   }
 
-  # 8. Save RBC
-  cat("Save RBC\n")
-  saveRDS(rbc, file = rbc_filename)
 
   # 9. Save Plot
   cat("Save plot\n")
@@ -198,7 +208,7 @@ visual_filter <- function(pvolfile, overwrite = FALSE, azim_method = "averaged",
     dark_theme_bw() &
     theme(axis.title.x = element_blank(),
           axis.title.y = element_blank()) -> rbc_plot
-  ggsave(rbc_plot_filename, plot = rbc_plot, width = 15, height = 8)
+  ggsave(rbc_plot, filename = rbc_plot_filename, width = 15, height = 8)
 }
 
 range_coverage <- function(scan) {
@@ -489,54 +499,44 @@ plot_ppi_nl <- function(ppi, param, xlim, ylim, title) {
           axis.title.y = element_blank())
 }
 
-cores <- 14
+## Example processing pipelines
+cores <- 14  # Recommended to tweak depending on available memory when parallel processing
+
+# Processing scans to range-bias corrected PPIs and diagnostic plots to filter out clutter
 files <- list.files(path = "data/pvol", full.names = TRUE)
-files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh")]
+files <- files[!files %in% c("data/pvol/dhl_files.sh", "data/pvol/hrw_files.sh", ".gitkeep")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.RDS"))
-remaining_files_full <- files[!file.exists(remaining_files_full)]
-remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
-remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
-remaining_files <- unique(c(remaining_files_averaged, remaining_files_full))
+remaining_files_full_pngs <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_full.png"))
 
-# processing <- lapply(remaining_files[100:103], visual_filter, azim_method = "averaged", overwrite = TRUE)
+remaining_files_full_pngs <- basename(remaining_files_full_pngs)
+existing_pngs <- basename(Sys.glob("data/rbc_png/full/*/*"))
 
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "averaged", overwrite = FALSE,
-                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+remaining_files_full <- files[!file.exists(remaining_files_full) | !remaining_files_full_pngs %in% existing_pngs]
+remaining_files <- remaining_files_full
+
+processing <- pbmclapply(remaining_files, function(file) {
+  tryCatch(
+    rbc_filter(file, azim_method = "full", overwrite = FALSE),
+    error = function(e) {
+      message(paste("Error processing", file, ":", e$message))
+      return(NULL)  # Or return a custom error message
+    }
+  )
+}, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
+
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE,
-                         mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
-
-cores <- 14
+# Processing no-migration scans to range-bias corrected PPIs and diagnostic plots to identify clutter on occasions
+# with no rain and no anomalous propagation.
 files <- list.files(path = "data/pvol_clutter", full.names = TRUE)
-files <- files[!files %in% c("data/pvol_clutter/dhl_files.sh", "data/pvol_clutter/hrw_files.sh")]
+files <- files[!files %in% c("data/pvol_clutter/dhl_files.sh", "data/pvol_clutter/hrw_files.sh", ".gitkeep")]
 remaining_files <- str_replace(files, ".h5", ".RDS")
 remaining_files_full <- str_replace_all(remaining_files, pattern = c("/pvol_clutter/" = "/rbc_clutter/", ".RDS" = "_full.RDS"))
 remaining_files_full <- files[!file.exists(remaining_files_full)]
-# remaining_files_averaged <- str_replace_all(remaining_files, pattern = c("/pvol/" = "/rbc/", ".RDS" = "_averaged.RDS"))
-# remaining_files_averaged <- files[!file.exists(remaining_files_averaged)]
-remaining_files <- unique(c(remaining_files_full))
-# processing <- lapply(remaining_files[1:3], visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE)
-processing <- pbmclapply(remaining_files, visual_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE,
+remaining_files <- remaining_files_full
+
+processing <- pbmclapply(remaining_files, rbc_filter, azim_method = "full", overwrite = FALSE, cluttermap = TRUE,
                          mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
-
-
-# files <- Sys.glob("data/rbc/*.RDS")
-#
-# test <- pbmclapply(files, function(x) {
-#   rbc <- readRDS(x)
-#   azim_plot <- plot_azimuth_effect(rbc)
-#
-#   filebase <- tools::file_path_sans_ext(basename(x))
-#   if (stringr::str_ends(filebase, "averaged")) azim_method <- "averaged"
-#   if (stringr::str_ends(filebase, "full")) azim_method <- "full"
-#
-#   azimuth_plot_filename <- paste0("data/rbc/", filebase, "_azimuth_", azim_method, ".png")
-#   ggsave(azim_plot, filename = azimuth_plot_filename, width = 15, height = 11)
-#
-# }, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
-
 
