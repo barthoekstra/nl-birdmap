@@ -11,7 +11,6 @@ Bart Hoekstra<sup>1</sup>, Bart Kranstauber<sup>1</sup>, Maja Bradarić<sup>1</s
 <sup>4</sup> Royal Netherlands Air Force, P.O Box 8762, 4820 BB Breda, The Netherlands<br />
 
 ## Data
-This repository contains all necessary raw data, with the exception of the necessary polar volume files of Dutch weather radar data. Given the large data volume of weather radar data, it is impractical to share this here, but the data is freely available via the [KNMI open data portal](https://dataplatform.knmi.nl/) and can be accessed via thet [{getRad} R package](https://aloftdata.github.io/getRad/). The analysis notebooks show how files should be structured for the analysis and the folder structure has been retained by adding empty `.gitkeep` files to this repository.
+This repository contains all data needed as initial input data. Unfortunately, given the large data volume of weather radar data, it is impractical to share this here, but the data is freely available via the [KNMI open data portal](https://dataplatform.knmi.nl/) and can be accessed via thet [{getRad} R package](https://aloftdata.github.io/getRad/). The analysis notebooks show how files should be structured for the analysis and the folder structure has been retained by adding empty `.gitkeep` files to this repository.
 
-### GIS data
-A short summary table with GIS data files, their contents and sources is listed below.
+A short summary table with of input files, their contents and sources is listed below.
