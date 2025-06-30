@@ -13,4 +13,23 @@ Bart Hoekstra<sup>1</sup>, Bart Kranstauber<sup>1</sup>, Maja Bradarić<sup>1</s
 ## Data
 This repository contains all data needed as initial input data. Unfortunately, given the large data volume of weather radar data, it is impractical to share this here, but the data is freely available via the [KNMI open data portal](https://dataplatform.knmi.nl/) and can be accessed via thet [{getRad} R package](https://aloftdata.github.io/getRad/). The analysis notebooks show how files should be structured for the analysis and the folder structure has been retained by adding empty `.gitkeep` files to this repository.
 
-A short summary table with of input files, their contents and sources is listed below.
+A short summary table with of input files, their contents and sources is listed below. All files are located in `data` and the respective subfolders.
+
+| Filename | Folder | Source | Contents | URL | Comment |
+|----------|--------|--------|----------|-----|---------|
+|`vp_mtr_ordered_seasonal_day_`<br />`night_migration.csv`|        |-        |Ranked nightly migration activity across radars derived from vertical profiles of birds     |     |Main input file for the study, also contains information on daytime migration|
+|`dhl.csv`          |`beam_blockage`        |-       |Beam blockage for Den Helder radar          |     |Calculated using `beam-blockage/beamblockage.ipynb`          |
+|`hrw.csv` | `beam_blockage` |-|Beam blockage for Herwijnen radar | |Calculated using `beam-blockage/beamblockage.ipynb`|
+|`NL_Beamblockage.geojson`| `gis` |-|Beam blockage for Dutch radars converted to .geojson| |
+|`manual_clutter.geojson` | `gis` |-|Manually drawn areas affected by ground clutter | |Only if not resolved by beam blockage procedure|
+|`NL_Clutter-500m-Buffer.geojson`| `gis` |-|.geojson of identified clutter areas buffered by 500m| |
+|`Netherlands-5km-Buffer.geojson`| `gis` |-|.geojson with an outline of the Netherlands buffered by 500m| |
+|`Netherlands.geojson`| `gis` |-|.geojson with an outline of the Netherlands| |
+|`Noord-Holland-10km-Buffer.geojson`| `gis` |-|.geojson with an outline of the province of North-Holland bufffered by 10km| |
+|`Noord-Holland.geojson`| `gis` |-|.geojson with an outline of the province of North-Holland| |
+|`Radars-100km-Buffer.geojson`| `gis` |-|.geojson with the area enclosed within 100km from both Dutch weather radars| |
+|`Radars.geojson`| `gis` |-|.geojson with the locations from both Dutch weather radars| |
+|`gemeenten.geojson`| `gis` | CBS |.geojson with the Dutch municipalities| [URL](https://www.cbs.nl/nl-nl/dossier/nederland-regionaal/geografische-data/cbs-gebiedsindelingen)| Not in final version of manuscript|
+|`rivm_20250101_windturbines_`<br />`ashoogte.shp` | `gis` | RIVM|Shapefile with turbine locations and dimension information|[URL](https://www.nationaalgeoregister.nl/geonetwork/srv/api/records/23d0d402-a6d9-47c5-a6f3-d7f7fb35cb79?language=all)
+|`altitude_profiles_weatherradar.rds`| `profiles` |-|Aggregated altitude profiles from both Dutch weather radars| |
+|`altitude_profiles_weatherradar.sql`| `profiles` |-|SQL Query to aggregate altitude profiles from both Dutch weather radars| |
