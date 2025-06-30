@@ -133,6 +133,7 @@ beam-blockage/srtm/*
 beam-blockage/*.csv
 !beam-blockage/beamblockage.ipynb
 
+comms/*.Rmd
 comms/vps
 comms/vps_50m
 comms/vps_unused
