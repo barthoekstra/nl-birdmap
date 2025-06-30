@@ -1269,6 +1269,7 @@ m[m == 0] <- NA
 plot(m)
 writeRaster(m, "data/beam_blockage/NL_beamblockage.tif", overwrite = TRUE)
 ```
+
 # Quantifying seasonal cumulative migration
 We use the vertical profiles to quantify how many birds actually pass over the Netherlands seasonally.
 
@@ -1766,10 +1767,34 @@ data <- bi_class(mapdata, x = "MT_autumn", y = "power_density", "equal", dim = 4
 
 nhol_simple <- rmapshaper::ms_simplify(nhol, keep = 0.07)
 
+# Color palette from Strode et al 10.14714/CP94.1538
+# Tweaked to contain an orange (high x, low y) in the inferno scale
+custom_pal <- c(
+  "1-1" = "#eeeeee", # low x, low y
+  "2-1" = "#fedcb7",
+  "3-1" = "#feba67",
+  # "4-1" = "#fc9400", # high x, low y f98e09
+  "4-1" = "#f98e09",
+  "1-2" = "#b9ddff",
+  "2-2" = "#b8b8b8",
+  "3-2" = "#b89265",
+  "4-2" = "#bc6800",
+  "1-3" = "#63baff",
+  "2-3" = "#6693b9",
+  "3-3" = "#666767",
+  "4-3" = "#6a3700",
+  "1-4" = "#0195ff", # low x, high y
+  "2-4" = "#006ab8",
+  "3-4" = "#003866",
+  "4-4" = "#000000" # high x, high y
+)
+
+bi_pal(pal = custom_pal, dim = 4)
+
 map <- ggplot() +
   geom_raster(data = data, mapping = aes(x = x, y = y, fill = bi_class), show.legend = FALSE) +  
   geom_sf(data = reverse_nhol, fill = "white", color = NA) +
-  bi_scale_fill(pal = "DkViolet2", dim = 4) +
+  bi_scale_fill(pal = custom_pal4, dim = 4) +
   geom_sf_pattern(aes(pattern = certainty),
                   data = uncertainty %>% st_intersection(nhol_simple),
                   fill = alpha("black", 0.2), color = alpha("black", 0.2),
@@ -1786,12 +1811,15 @@ map <- ggplot() +
 
 map
 
-legend <- bi_legend(pal = "DkViolet2",
+legend <- bi_legend(pal = custom_pal,
                     dim = 4,
                     xlab = "Migration passage ",
                     ylab = "Wind power density ",
                     size = 8)
 ```
+
+
+
 
 ```{r}
 bind_cols(wpr_extract, ban_extract, bsn_extract) %>%
@@ -1863,15 +1891,21 @@ wpr_means_res <- wpr_means_res %>%
   bi_class(x = "MT_mean", y = "pd_mean", "equal", dim = 4)
 
 distrib <- ggplot() +
-  geom_raster(aes(x = MT_disp, y = power_density_disp, fill = bi_class),
+  # stat_bin2d(aes(x = MT_disp, y = power_density_disp, fill = bi_class, alpha = after_stat(ndensity)),
+  stat_bin2d(aes(x = MT_disp, y = power_density_disp, fill = bi_class),
               data = wpr_data %>% filter(type == "Background") %>%
-                dplyr::select(MT_disp, power_density_disp, season, bi_class) %>%
-                distinct(),
-              hjust = 0, vjust = 0, show.legend = FALSE) +
+                dplyr::select(MT_disp, power_density_disp, season, bi_class),
+              hjust = 0, vjust = 0, show.legend = FALSE, geom = "raster", binwidth = c(25, 25)) +
+  # geom_raster(aes(x = MT_disp, y = power_density_disp, fill = bi_class, alpha = after_stat(ndens)),
+  #             data = wpr_data %>% filter(type == "Background") %>%
+  #               dplyr::select(MT_disp, power_density_disp, season, bi_class) %>%
+  #               distinct(),
+  #             hjust = 0, vjust = 0, show.legend = FALSE) +
   geom_vline(data = wpr_means, aes(xintercept = MT_mean), color = "white", linewidth = 0.75) +
   geom_hline(data = wpr_means, aes(yintercept = pd_mean), color = "white", linewidth = 0.75) +
   geom_point(aes(x = MT_mean, y = pd_mean, size = area_size), data = wpr_means_res, pch = 21, fill = "red", color = "white", stroke = 1.5) +
-  bi_scale_fill(pal = "DkViolet2", dim = 4) +
+  bi_scale_fill(pal = custom_pal4, dim = 4) +
+  scale_alpha_continuous(range = c(0.8, 1)) +
   geom_label_repel(aes(x = MT_mean, y = pd_mean, label = Naam_gebie), data = wpr_means_res, min.segment.length = 0, force = 100) +
   theme_light(base_size = 14) +
   scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) +
@@ -2080,6 +2114,7 @@ data %>%
         legend.key.width = unit(1.5, "cm"))
 ggsave("data/final_maps_plots/maps_raw.pdf", width = 17, height = 10, device = cairo_pdf)
 ```
+
 ## Small NL map
 
 ```{r}
