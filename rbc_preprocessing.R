@@ -525,15 +525,6 @@ processing <- pbmclapply(remaining_files, function(file) {
   )
 }, mc.cores = cores, mc.preschedule = FALSE, mc.silent = FALSE)
 
-# processing <- lapply(remaining_files, function(file) {
-#   tryCatch(
-#     rbc_filter(file, azim_method = "full", overwrite = FALSE),
-#     error = function(e) {
-#       message(paste("Error processing", file, ":", e$message))
-#       return(NULL)  # Or return a custom error message
-#     }
-#   )
-# })
 saveRDS(processing, paste0("data/logs/processing_", format(Sys.time(), "%Y%m%dT%H%M"), ".RDS"))
 
 # Processing no-migration scans to range-bias corrected PPIs and diagnostic plots to identify clutter on occasions
