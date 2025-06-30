@@ -133,6 +133,18 @@ beam-blockage/srtm/*
 beam-blockage/*.csv
 !beam-blockage/beamblockage.ipynb
 
+!data/vp_mtr_ordered_seasonal_day_night_migration.csv
+!data/gis
+data/gis/*
+!data/gis/*.geojson
+!data/gis/*.shp
+!data/gis/NLD_power-density_100m.tif
+
+# Beam blockage and geoTIFF outputs
+!data/beam_blockage/
+!data/beam_blockage/*.csv
+!data/beam_blockage/*.tif
+
 comms/*.Rmd
 comms/vps
 comms/vps_50m
