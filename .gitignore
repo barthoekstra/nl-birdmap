@@ -119,6 +119,16 @@ data/maps_plots_clutter/*
 data/final_maps/*
 !data/final_maps/.gitkeep
 
+!data/final_maps_plots
+data/final_maps_plots/*
+!data/final_maps_plots/.gitkeep
+
+!data/profiles
+data/profiles/radar_profiles_full.csv
+data/profiles/altitude_profiles_birdradar.rds
+#data/profiles/
+#!data/profiles/.gitkeep
+
 beam-blockage/srtm/*
 beam-blockage/*.csv
 !beam-blockage/beamblockage.ipynb
