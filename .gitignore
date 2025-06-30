@@ -136,6 +136,7 @@ beam-blockage/*.csv
 !data/vp_mtr_ordered_seasonal_day_night_migration.csv
 !data/gis
 data/gis/*
+!data/gis/RES
 !data/gis/*.geojson
 !data/gis/*.shp
 !data/gis/NLD_power-density_100m.tif
