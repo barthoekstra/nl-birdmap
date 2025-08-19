@@ -1,7 +1,7 @@
 # nl-birdmap
 This repository accompanies the manuscript:
 
-_Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition_
+_Fine-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition_
 
 It contains the code and data necessary to reproduce the key analyses and figures.
 
