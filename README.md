@@ -46,3 +46,4 @@ A short summary table with of input files, their contents and sources is listed 
 |`altitude_profiles_weatherradar.rds`| `profiles` |-|Aggregated altitude profiles from both Dutch weather radars| |
 |`altitude_profiles_weatherradar.sql`| `profiles` |-|SQL Query to aggregate altitude profiles from both Dutch weather radars| |
 |`RES_zoekgebieden_*`|`gis/RES/`|Province of North-Holland|Shapefiles with information on the search areas/candidate sites for renewable energy developments|[URL](https://apps.vertigisstudio.eu/web/?app=194abc647f794375873dcd563932dd8e)|
+|`vp_mtr_cum50_cl.csv`||-|.csv export of vp_mtr_cum50_cl object containing scan screening outcomes||

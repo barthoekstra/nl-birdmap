@@ -106,6 +106,10 @@ data/final_stacks/*
 !data/maps
 data/maps/*
 !data/maps/.gitkeep
+!data/maps/night
+!data/maps/night/*
+!data/maps/night/scans/
+!data/maps/night/scans/*
 
 !data/maps_plots
 data/maps_plots/*
@@ -118,10 +122,15 @@ data/maps_plots_clutter/*
 !data/final_maps
 data/final_maps/*
 !data/final_maps/.gitkeep
+!data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif
+!data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif
 
 !data/final_maps_plots
 data/final_maps_plots/*
 !data/final_maps_plots/.gitkeep
+
+!data/maps/night/scans/NL_autumn_night_thresh_2500_avg_scans_10_2h30m.tif
+!data/maps/night/scans/NL_spring_night_thresh_2500_avg_scans_10_2h30m.tif
 
 !data/profiles
 data/profiles/radar_profiles_full.csv
@@ -134,6 +143,7 @@ beam-blockage/*.csv
 !beam-blockage/beamblockage.ipynb
 
 !data/vp_mtr_ordered_seasonal_day_night_migration.csv
+!data/vp_mtr_cum50_cl.csv
 !data/gis
 data/gis/*
 !data/gis/RES
@@ -146,6 +156,7 @@ data/gis/*
 !data/beam_blockage/*.csv
 !data/beam_blockage/*.tif
 
+
 comms/*.Rmd
 comms/vps
 comms/vps_50m
@@ -153,6 +164,6 @@ comms/vps_unused
 comms/*.pdf
 comms/*.png
 comms/*.RDS
-*.tif
+#*.tif
 *.pdf
 *.png
