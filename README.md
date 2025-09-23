@@ -1,4 +1,6 @@
 # nl-birdmap
+[![DOI](https://zenodo.org/badge/699724518.svg)](https://doi.org/10.5281/zenodo.17185398)
+
 This repository accompanies the manuscript:
 
 _Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition_
@@ -14,6 +16,20 @@ Bart Hoekstra<sup>1</sup>, Bart Kranstauber<sup>1</sup>, Maja Bradarić<sup>1</s
 <sup>2</sup> Cornell Lab of Ornithology, Cornell University, 159 Sapsucker Woods Rd, Ithaca, NY 14850, United States of America<br />
 <sup>3</sup> R&D Observations and Data Technology, Royal Netherlands Meteorological Institute, De Bilt, The Netherlands<br />
 <sup>4</sup> Royal Netherlands Air Force, P.O Box 8762, 4820 BB Breda, The Netherlands<br />
+
+## Data package ready-to-use outputs
+
+This repository contains a data package with processed outputs, in the folder `datapackage/`
+Where the other data in this repository is primarily intended to reproduce the analyses, the `datapackage/` folder contains the ready-to-use GIS products that are also shown in the manuscript.
+
+The datapackage includes:
+
+- Seasonal passage maps for spring and autumn (raster, 500 × 500 m resolution)
+- Bird density maps for both seasons
+- Raw (unsmoothed) maps of vertically integrated reflectivity
+- A .geojson file with areas of uncertainty (ground clutter and beam blockage), which should always be used in conjunction with the rasters
+
+These files represent the final outputs of the workflow and can be directly used for visualization, spatial analyses, or integration into other projects. Make sure to cite the paper when using these data products.
 
 ## Structure of this repository
 This repository is organized around three key scripts:
