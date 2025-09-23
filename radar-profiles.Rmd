@@ -17,7 +17,6 @@ library(ggbreak)
 library(cowplot)
 ```
 
-
 # Altitudes
 Here, we create the plots based on the data file `data/profiles/altitude_profiles_weatherradar.rds`. See `data/profiles/altitude_profiles_weatherradar.sql` for a description of the data columns.
 
@@ -189,5 +188,51 @@ dhl3 <- generate_altitude_plot(altitudes, "nldhl", "autumn", "night")
 
 plot_grid(dhl1, dhl3, hrw1, hrw3, ncol = 2 , rel_widths = c(4, 4)) # rel_widths = c(4, 1.5, 4)
 ggsave("data/altitude_plots/vertical_profiles.pdf", width = 4*2, height = 8)
+```
+
+
+```{r}
+altitudes_wr_raw <- readRDS("data/profiles/altitude_profiles_weatherradar.rds")
+
+altitudes_wr_raw %>%
+  rename(height = hght) %>%
+  mutate(day_night = if_else(day_night == "daylight", "day", "night")) %>%
+  filter(day_night == "night") %>%
+  group_by(date_trunc, odim_code) %>%
+  mutate(dens01 = dens / sum(dens, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(height = if_else(height >= 1000, 1000, height),
+         height_f = case_when(height <= 200 ~ "0-200 m",
+                              height > 200 & height <= 400 ~ "200-400 m",
+                              height > 400 & height <= 600 ~ "400-600 m",
+                              height > 600 & height <= 800 ~ "600-800 m",
+                              height > 800 & height < 1000 ~ "800-1000 m",
+                              height >= 1000 ~ ">1000 m"),
+         height_f = as.factor(height_f),
+         height_f = fct_relevel(height_f, c("0-200 m", "200-400 m", "400-600 m", "600-800 m", "800-1000 m", ">1000 m")),
+         year_f = as.factor(year(date_trunc)),
+         radar = case_when(odim_code == "nldhl" ~ "Den Helder",
+                           odim_code == "nlhrw" ~ "Herwijnen"),
+         date_plot = yday(date_trunc),
+         season = str_to_sentence(season),
+         season = fct_relevel(as.factor(season), c("Spring", "Autumn"))) %>%
+  group_by(date_trunc, radar, height_f, year, year_f, season, date_plot, prop, top) %>%
+  drop_na() %>%
+  summarise(height_prop = sum(dens01, na.rm = TRUE)) %>%
+  rename(daily_prop = prop) %>%
+  identity() -> altitudes_wr
+
+altitudes_wr %>%
+  ggplot() +
+  geom_area(aes(x = top, y = height_prop * 100, fill = height_f), position = position_stack(reverse = TRUE)) +
+  geom_line(aes(x = top, y = height_prop * 100), color = "white", data = altitudes_wr %>% filter(height_f == "0-200 m"), alpha = 0.5) +
+  geom_line(aes(x = top, y = daily_prop * 100), color = "white", linetype = "dashed") +
+  ggh4x::facet_nested(rows = vars(year_f), cols = vars(radar, season), scales = "free", render_empty = FALSE) +
+  scale_fill_manual(values = c("#CC0001", "#1B4675", "#003A6D", "#07264E", "#061735", "#060a19"), name = "Flight altitude",
+                      guide = guide_legend()) +
+  labs(x = "Ranked night", y = "% of migration") +
+  theme_gray(base_size = 14)
+
+ggsave("data/altitude_plots/nightly_altitude_distribution.pdf", width = 12, height = 7)
 ```
 
