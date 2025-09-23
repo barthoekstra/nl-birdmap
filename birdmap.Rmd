@@ -1619,15 +1619,42 @@ nhol_average_ban <- terra::extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data
 nhol_average_bsn <- terra::extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% summarise(avg = mean(focal_mean, na.rm = TRUE))
 ```
 
+
 ```{r}
 terra::extract(ban_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean)
 terra::extract(bsn_dens, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean)
+terra::extract(ban_dens, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean)
+terra::extract(bsn_dens, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% mutate(focal_mean = focal_mean / 11) %>% skim(focal_mean)
 ```
 
 ```{r}
 terra::extract(ban, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # Autumn
 terra::extract(bsn, vect(nl_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # Spring
+terra::extract(ban, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # Autumn
+terra::extract(bsn, vect(nhol_clut), raw = TRUE) %>% as.data.frame() %>% skim(focal_mean) # Spring
 ```
+
+### Preparing data package
+
+```{r}
+package_folder <- "datapackage/"
+rcs <- 11  # Radar cross-section
+# Final maps
+nlbuf <- vect(nl_buf)
+terra::mask(ban, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_autumn_seasonal_passage.tif"))
+terra::mask(bsn, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_seasonal_passage.tif"))
+terra::mask(ban_dens / rcs, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_autumn_bird_density.tif"))
+terra::mask(ban_dens / rcs, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_bird_density.tif"))
+# Unsmoothed maps
+raw_a <- rast("data/maps/night/scans/NL_autumn_night_thresh_2500_avg_scans_10_2h30m.tif") %>% trim()
+raw_s <- rast("data/maps/night/scans/NL_spring_night_thresh_2500_avg_scans_10_2h30m.tif") %>% trim()
+terra::mask(raw_a, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_autumn_VIR_raw.tif"))
+terra::mask(raw_s, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_VIR_raw.tif"))
+
+# Uncertainty areas
+sf::write_sf(uncertainty, glue::glue("{package_folder}NL_uncertainty_areas.geojson"))
+```
+
 
 ## Figure 2: Overview maps of the Netherlands
 
@@ -2072,20 +2099,13 @@ unique_nights <- vp_mtr_cum50 %>%
 
 print(unique_nights)
 
-# And per season
 vp_mtr_cum50 %>% 
+  group_by(season, odim_code, year) %>% 
+  summarise(nights_needed = max(top)) %>% 
   group_by(season) %>% 
-  distinct(date_trunc) %>%
-  summarise(n_per_season = n())
-
-# And averages per season
-vp_mtr_cum50 %>%
-  group_by(year, season) %>%
-  distinct(date_trunc) %>%
-  summarise(n_per_season = n()) %>%
-  group_by(season) %>%
-  dplyr::select(season, n_per_season) %>%
-  skim()
+  summarise(mean_nights = mean(nights_needed), 
+            min_nights = min(nights_needed), 
+            max_nights = max(nights_needed))
 ```
 
 Nights per season
