@@ -24,7 +24,7 @@ If you use these data, please cite the paper (see repository/Zenodo entry for fu
 
 ## File overview
 
-Filename	                        Description
+Filename                          Description
 NL_autumn_seasonal_passage.tif    Seasonal passage map for autumn (Figure 2 in the paper)
 NL_autumn_bird_density.tif        Final map of bird densities in autumn
 NL_autumn_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map
