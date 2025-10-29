@@ -3,7 +3,7 @@
 
 This repository accompanies the manuscript:
 
-_Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition_
+Hoekstra, B., Kranstauber, B., Bradarić, M., De Groeve, J., Shinneman, S., Wijers, B. C., Leijnse, H., van Gasteren, H., Dokter, A. M., van Loon, E., &amp; Shamoun-Baranes, J. (2025). Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition. _Journal of Environmental Management_, _395_, 127753. [https://doi.org/10.1016/j.jenvman.2025.127753](https://doi.org/10.1016/j.jenvman.2025.127753)
 
 It contains the code and data necessary to reproduce the key analyses and figures.
 
