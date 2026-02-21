@@ -1,7 +1,7 @@
 # Data package: GIS files of nocturnal bird migration over the Netherlands
 
 This data package accompanies the manuscript:
-Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition
+Hoekstra, B., Kranstauber, B., Bradarić, M., De Groeve, J., Shinneman, S., Wijers, B. C., Leijnse, H., van Gasteren, H., Dokter, A. M., van Loon, E., & Shamoun-Baranes, J. (2025). Large-scale mapping of nocturnal bird migration to accelerate a nature-inclusive energy transition. Journal of Environmental Management, 395, 127753. https://doi.org/10.1016/j.jenvman.2025.127753
 
 ## Authors (and affiliations)
 
@@ -24,14 +24,14 @@ If you use these data, please cite the paper (see repository/Zenodo entry for fu
 
 ## File overview
 
-Filename	                        Description
-NL_autumn_seasonal_passage.tif -	Seasonal passage map for autumn (Figure 2 in the paper)
-NL_autumn_bird_density.tif	   -  Final map of bird densities in autumn
-NL_autumn_VIR_raw.tif	         -  Raw (unsmoothed) vertically integrated reflectivity map
-NL_spring_seasonal_passage.tif -	Seasonal passage map for spring (Figure 2 in the paper)
-NL_spring_bird_density.tif	   -  Final map of bird densities in spring
-NL_spring_VIR_raw.tif	         -  Raw (unsmoothed) vertically integrated reflectivity map
-NL_uncertainty_areas.geojson	 -  Areas affected by ground clutter or beam blockage
+Filename                          Description
+NL_autumn_seasonal_passage.tif    Seasonal passage map for autumn (Figure 2 in the paper)
+NL_autumn_bird_density.tif        Final map of bird densities in autumn
+NL_autumn_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map
+NL_spring_seasonal_passage.tif    Seasonal passage map for spring (Figure 2 in the paper)
+NL_spring_bird_density.tif        Final map of bird densities in spring
+NL_spring_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map
+NL_uncertainty_areas.geojson      Areas affected by ground clutter or beam blockage
 
 ## Links
 - GitHub repository with code and workflow: https://github.com/barthoekstra/nl-birdmap
