@@ -1508,7 +1508,7 @@ With all that data in place, we can start to compile the figures. The altitude p
 ## Figure data prep
 
 ```{r, results='hide'}
-ban_dens <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")
+ban_dens <- rast("data/final_maps/NL_autumn_night_thresh_250_s_4_n_25_2h30m.tif")  # Actually VIRs
 bsn_dens <- rast("data/final_maps/NL_spring_night_thresh_250_s_4_n_25_2h30m.tif")
 
 ban <- ban_dens
@@ -1644,7 +1644,7 @@ nlbuf <- vect(nl_buf)
 terra::mask(ban, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_autumn_seasonal_passage.tif"))
 terra::mask(bsn, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_seasonal_passage.tif"))
 terra::mask(ban_dens / rcs, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_autumn_bird_density.tif"))
-terra::mask(ban_dens / rcs, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_bird_density.tif"))
+terra::mask(bsn_dens / rcs, nlbuf) %>% terra::writeRaster(glue::glue("{package_folder}NL_spring_bird_density.tif"))
 # Unsmoothed maps
 raw_a <- rast("data/maps/night/scans/NL_autumn_night_thresh_2500_avg_scans_10_2h30m.tif") %>% trim()
 raw_s <- rast("data/maps/night/scans/NL_spring_night_thresh_2500_avg_scans_10_2h30m.tif") %>% trim()
