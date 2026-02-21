@@ -24,15 +24,15 @@ If you use these data, please cite the paper (see repository/Zenodo entry for fu
 
 ## File overview
 
-Filename                          Description
-NL_autumn_seasonal_passage.tif    Seasonal passage map for autumn (Figure 2 in the paper)
-NL_autumn_bird_density.tif        Final map of bird densities in autumn
-NL_autumn_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map
-NL_spring_seasonal_passage.tif    Seasonal passage map for spring (Figure 2 in the paper)
-NL_spring_bird_density.tif        Final map of bird densities in spring
-NL_spring_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map
+Filename                          Description                                               Units
+NL_autumn_seasonal_passage.tif    Seasonal passage map for autumn (Figure 2 in the paper)   birds/km
+NL_autumn_bird_density.tif        Final map of bird densities in autumn                     birds/km^2
+NL_autumn_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map   cm^2/km^2
+NL_spring_seasonal_passage.tif    Seasonal passage map for spring (Figure 2 in the paper)   birds/km
+NL_spring_bird_density.tif        Final map of bird densities in spring                     birds/km^2
+NL_spring_VIR_raw.tif             Raw (unsmoothed) vertically integrated reflectivity map   cm^2/km^2
 NL_uncertainty_areas.geojson      Areas affected by ground clutter or beam blockage
 
 ## Links
 - GitHub repository with code and workflow: https://github.com/barthoekstra/nl-birdmap
-- Archived version on Zenodo (with DOI): [link once available]
+- Archived version on Zenodo (with DOI): https://doi.org/10.5281/zenodo.17185398
